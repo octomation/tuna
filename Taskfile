@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+[ "${BASH_VERSINFO:-0}" -ge 4 ] || {
+  echo "bash version 4 or higher is required" >&2
+  exit 1
+}
+
+root=$(git rev-parse --show-toplevel)
+include=(
+  "${root}"/bin/lib/utils/*.bash
+  "${root}"/bin/lib/git/*.bash
+  "${root}"/bin/lib/tools/*.bash
+  "${root}"/bin/lib/docs/*.bash
+  "${root}"/bin/lib/config/*.bash
+  "${root}"/bin/lib/core/*.bash
+  "${root}"/bin/lib/*.bash
+)
+
+for script in "${include[@]}"; do
+  # shellcheck source=bin/lib/main.bash
+  source "${script}"
+done

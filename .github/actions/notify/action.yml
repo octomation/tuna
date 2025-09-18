@@ -1,0 +1,66 @@
+name: Define notification message
+description: Identify an appropriate notification message.
+branding:
+  icon: 'message-square'
+  color: 'green'
+
+inputs:
+  emoji:
+    description: Prefix for the title.
+    default: 🤖
+
+  channel:
+    description: Notification channel.
+    required: true
+
+  success:
+    description: Is the result successful?
+    required: true
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    - name: Define notification message
+      id: message
+      run: |
+        if [ '${{ github.event.head_commit.message != null }}' == 'true' ]
+        then
+          (cat <<-message
+        txt=${{ github.event.head_commit.message }}
+        message
+        ) | head -1 >> $GITHUB_OUTPUT
+
+        elif [ '${{ github.event.inputs.reason != null }}' == 'true' ]
+        then
+          (cat <<-message
+        txt=${{ github.event.inputs.reason }}
+        message
+        ) | head -1 >> $GITHUB_OUTPUT
+
+        elif [ '${{ github.event.workflow_run != null }}' == 'true' ]
+        then
+          (cat <<-message
+        txt=triggered by the ${{ github.event.workflow_run.name }} action
+        message
+        ) | head -1 >> $GITHUB_OUTPUT
+
+        elif [ '${{ github.event.schedule != null }}' == 'true' ]
+        then
+          echo txt='regular healthcheck' >> $GITHUB_OUTPUT
+        else
+          echo Cannot define notification message && exit 1
+        fi
+      shell: bash
+
+    - name: Send Slack notification
+      uses: rtCamp/action-slack-notify@v2.2.1
+      if: ${{ inputs.channel != '' }}
+      env:
+        SLACK_COLOR: ${{ inputs.success == 'true' && 'success' || 'failure' }}
+        SLACK_FOOTER: made with ❤️ for everyone by <https://www.octolab.org/|OctoLab>
+        SLACK_ICON: https://cdn.octolab.org/geek/octolab.png
+        SLACK_MESSAGE: ${{ steps.message.outputs.txt }}
+        SLACK_TITLE: '${{ inputs.emoji }} ${{ github.repository }}: ${{ github.workflow }}'
+        SLACK_USERNAME: Notifier
+        SLACK_WEBHOOK: ${{ inputs.channel }}
