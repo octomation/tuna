@@ -123,3 +123,31 @@ tuna/
 
 - **Code and files**: Always write in English (code, comments, documentation, commit messages, file names)
 - **Communication**: Respond in the same language the user writes in
+
+## Markdown Formatting
+
+### Tables
+
+Always align Markdown tables for readability in both raw and rendered views:
+
+- Align all `|` characters vertically
+- Pad cells with spaces so columns have consistent width
+- Use the longest cell content as reference for column width
+
+**Good example:**
+```markdown
+| File                             | Action |
+|----------------------------------|--------|
+| `go.mod`                         | Modify |
+| `internal/plan/loader.go`        | Create |
+| `internal/exec/executor_test.go` | Create |
+```
+
+**Bad example:**
+```markdown
+| File | Action |
+|---|---|
+| `go.mod` | Modify |
+| `internal/plan/loader.go` | Create |
+| `internal/exec/executor_test.go`| Create |
+```
