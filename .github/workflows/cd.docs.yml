@@ -1,0 +1,94 @@
+name: Documentation delivery
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/cd.docs.yml'
+      - 'docs/**/*'
+
+  schedule:
+    - cron: 0 7 1 * * # at 07:00 on day-of-month 1, UTC
+
+  workflow_call:
+
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: The reason for dispatching it manually.
+        type: string
+        default: manual healthcheck
+        required: true
+
+concurrency:
+  group: docs
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Building
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v4.1.1
+        with: { fetch-depth: 0 }
+      - name: Set up Node.js environment
+        uses: actions/setup-node@v4.0.1
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+          check-latest: true
+      - name: Set up GitHub Pages
+        uses: actions/configure-pages@v4.0.0
+      - name: Install dependencies
+        run: ./Taskfile docs npm ci
+
+      - name: Build the documentation
+        run: |
+          path=$(
+            gh api repos/${{ github.repository }}/pages \
+              --jq '.html_url' |
+            awk -F'https?://[^/]+' '{print $2}'
+          )
+          TARGET=static BASE_PATH="${path%/}" ./Taskfile docs build
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: Upload the documentation
+        uses: actions/upload-pages-artifact@v3.0.0
+        with: { path: docs/dist }
+
+  deploy:
+    name: Deploying
+    needs: [ build ]
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      id-token: write
+      pages: write
+
+    steps:
+      - name: Deploy it to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4.0.2
+
+  notify:
+    name: Notifying
+    needs: [ build, deploy ]
+    runs-on: ubuntu-latest
+    if: failure() || success()
+
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v4.1.1
+        with: { fetch-depth: 0 }
+
+      - name: Send notification
+        uses: ./.github/actions/notify
+        with:
+          emoji: 📚
+          channel: ${{ secrets.SLACK_WEBHOOK }}
+          success: ${{ ! contains(needs.*.result, 'failure') }}

@@ -1,0 +1,87 @@
+name: Workflow runs cleanup
+
+on:
+  schedule:
+    - cron: 0 6 1 * * # at 06:00 on day-of-month 1, UTC
+
+  workflow_call:
+
+  workflow_dispatch:
+    inputs:
+      pattern:
+        description: The name of workflow to clean.
+        type: choice
+        options:
+          - All
+          - Continuous delivery
+          - Continuous integration
+          - Documentation delivery
+          - Stale issues cleanup
+          - Tools validation
+          - Workflow caches cleanup
+          - Workflow caches warmup
+          - Workflow runs cleanup
+        default: Workflow runs cleanup
+        required: true
+      dry_run:
+        description: Only log actions, do not perform any delete operations.
+        type: boolean
+        required: false
+      reason:
+        description: The reason for dispatching it manually.
+        type: string
+        default: manual healthcheck
+        required: true
+
+jobs:
+  delete:
+    name: Deleting
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+
+    steps:
+      - name: Delete workflow runs
+        uses: Mattraks/delete-workflow-runs@v2.0.6
+        with:
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          delete_workflow_pattern: >-
+            ${{
+              github.event.inputs.pattern != 'All'
+              && github.event.inputs.pattern
+              || ''
+            }}
+          dry_run: ${{ fromJSON('["", "true"]')[github.event.inputs.dry_run == 'true'] }}
+          retain_days: 0
+          keep_minimum_runs: 0
+      - name: Finishing workflow runs deletion
+        run: |
+          gh run list \
+            -R '${{ github.repository }}' \
+            --status completed \
+            --limit 100 \
+            --json databaseId \
+            --jq '.[] | .databaseId' |
+            xargs -n1 --no-run-if-empty gh run delete -R '${{ github.repository }}'
+        if: github.event.inputs.pattern == 'All'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+  notify:
+    name: Notifying
+    needs: [ delete ]
+    runs-on: ubuntu-latest
+    if: failure() || success()
+
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v4.1.1
+        with: { fetch-depth: 0 }
+
+      - name: Send notification
+        uses: ./.github/actions/notify
+        with:
+          emoji: 🧹
+          channel: ${{ secrets.SLACK_WEBHOOK }}
+          success: ${{ ! contains(needs.*.result, 'failure') }}
