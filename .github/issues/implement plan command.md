@@ -1,0 +1,140 @@
+---
+issue: null
+status: open
+type: task
+labels:
+  - "effort: easy"
+  - "impact: low"
+  - "scope: code"
+  - "type: feature"
+assignees:
+  - kamilsk
+milestone: null
+projects: []
+relationships:
+  parent: null
+  blocked_by: []
+  blocks: []
+---
+
+# Implement `tuna plan` command
+
+## Description
+
+The `plan` command creates a `plan.toml` configuration file for an execution session of a specified assistant.
+
+The generated `plan_id` is a UUID v4.
+
+## CLI Interface
+
+```bash
+tuna plan <AssistantID> [flags]
+  --models, -m      # Comma-separated list of models (default: claude-sonnet-4-20250514)
+  --temperature     # Temperature setting (default: 0.7)
+  --max-tokens      # Max tokens for response (default: 4096)
+```
+
+## Algorithm
+
+1. **Validation**: verify that `<AssistantID>/` directory exists
+
+2. **Generate UUID**: create unique `plan_id`
+
+3. **Compile system prompt**:
+   - Read all files from `<AssistantID>/System prompt/`
+   - Filter: only `.txt` and `.md` files, ignore hidden files (starting with `.`)
+   - Sort alphabetically by filename (e.g., `fragment_001.md`, `fragment_002.md`, ...)
+   - Concatenate file contents into a single string, prepending each fragment with a delimiter:
+     ```
+     --- fragment_001.md ---
+     <file content>
+
+     --- fragment_002.md ---
+     <file content>
+     ```
+
+4. **Collect queries**:
+   - Read file list from `<AssistantID>/Input/`
+   - Filter: only `.txt` and `.md` files, ignore hidden files (starting with `.`)
+   - Generate `[[query]]` entries with `id` field (filename)
+
+5. **Parse models**:
+   - Split `--models` by comma into a string array
+
+6. **Generate `plan.toml`**:
+   - Create directory `<AssistantID>/Output/<plan_id>/`
+   - Write `plan.toml` file with structure:
+     ```toml
+     plan_id = "<UUID>"
+     assistant_id = "<AssistantID>"
+
+     [assistant]
+     system_prompt = """
+     <compiled prompt>
+     """
+
+     [assistant.llm]
+     models = ["model1", "model2"]
+     max_tokens = 4096
+     temperature = 0.7
+
+     [[query]]
+     id = "query_001.md"
+
+     [[query]]
+     id = "query_002.txt"
+     ```
+
+7. **Output**: display path to created file and brief statistics
+
+## Output
+
+- File: `<AssistantID>/Output/<plan_id>/plan.toml`
+- Stdout: file path, number of models, number of queries
+
+## File Filtering
+
+For both `Input/` and `System prompt/` directories:
+- **Included:** files with `.txt` or `.md` extensions
+- **Ignored:** hidden files (starting with `.`), e.g., `.gitkeep`, `.DS_Store`
+- **Ignored:** subdirectories (non-recursive traversal)
+
+## Edge Cases
+
+- Assistant directory does not exist → error
+- Empty `Input/` folder (after filtering) → warning, but create plan anyway
+- Empty `System prompt/` folder (after filtering) → error (system prompt is required)
+
+## Acceptance Criteria
+
+### Structure
+- [ ] Command creates `<AssistantID>/Output/<plan_id>/plan.toml`
+- [ ] `plan_id` is a valid UUID v4
+- [ ] `assistant_id` matches the provided `<AssistantID>` argument
+
+### System Prompt Compilation
+- [ ] Only `.txt` and `.md` files are included
+- [ ] Hidden files and subdirectories are ignored
+- [ ] Files are sorted alphabetically by filename
+- [ ] Each fragment is prefixed with `--- <filename> ---` delimiter
+- [ ] Fragments are separated by blank lines
+
+### LLM Configuration
+- [ ] `models` is an array of strings parsed from `--models` flag
+- [ ] `max_tokens` matches `--max-tokens` flag value
+- [ ] `temperature` matches `--temperature` flag value
+
+### Queries
+- [ ] Only `.txt` and `.md` files generate `[[query]]` entries
+- [ ] Hidden files and subdirectories are ignored
+- [ ] `id` field contains the filename (not full path)
+
+### CLI Output
+- [ ] Prints path to created `plan.toml`
+- [ ] Prints number of models
+- [ ] Prints number of queries
+
+### Error Handling
+- [ ] Returns error if assistant directory does not exist
+- [ ] Returns error if `System prompt/` directory is empty or missing
+- [ ] Prints warning but succeeds if `Input/` directory is empty

@@ -16,7 +16,7 @@ AssistantID/
 │   ├── query_002.txt
 │   └── ...
 ├── Output/         # Generated responses (created by tuna, .txt or .md)
-│   └── {session_id}/
+│   └── {plan_id}/
 │       ├── {model_hash}/
 │       │   ├── query_001_response.md
 │       │   └── ...
@@ -29,7 +29,7 @@ AssistantID/
 
 ### Plan
 
-A TOML configuration file that defines an execution session:
+A TOML configuration file that defines an execution plan:
 - Plan ID (UUID)
 - Assistant ID (folder name)
 - Compiled system prompt
@@ -55,6 +55,12 @@ tuna exec <PlanID> [flags]
   --dry-run         Show what would be executed without making API calls
   --continue        Continue from last checkpoint if interrupted
 ```
+
+## Configuration
+
+Environment variables for LLM integration:
+- `LLM_API_TOKEN` - API token for authentication (required for `exec`)
+- `LLM_BASE_URL` - Base URL for OpenAI-compatible API (required for `exec`)
 
 ## Project Structure
 

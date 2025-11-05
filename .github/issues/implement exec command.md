@@ -1,0 +1,189 @@
+---
+issue: null
+status: open
+type: task
+labels:
+  - "effort: easy"
+  - "impact: low"
+  - "scope: code"
+  - "type: feature"
+assignees:
+  - kamilsk
+milestone: null
+projects: []
+relationships:
+  parent: null
+  blocked_by: []
+  blocks: []
+---
+
+# Implement `tuna exec` command
+
+## Description
+
+Implement the `exec` command that executes a plan by reading `plan.toml`, parsing it into a Go structure, and making requests to an LLM using the OpenAI-compatible API.
+
+## Usage
+
+```bash
+tuna exec <PlanID> [flags]
+  --parallel, -p    Number of parallel requests (default: 1)
+  --dry-run         Show what would be executed without making API calls
+  --continue        Continue from last checkpoint if interrupted
+```
+
+## Expected behavior
+
+### 1. Locate and parse the plan
+
+The command should:
+1. Search for `plan.toml` by PlanID using glob pattern `*/Output/<PlanID>/plan.toml`
+2. Parse TOML into a Go struct
+3. Validate that `plan_id` in the file matches the provided PlanID
+
+**Example `plan.toml`:**
+```toml
+plan_id = "d9c35d53-288b-4bd4-ae44-572336ef7713"
+assistant_id = "OKR Assistant"
+
+[assistant]
+system_prompt = """
+Your system prompt here...
+"""
+
+[assistant.llm]
+models = ["qwen3-32b", "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8"]
+max_tokens = 4096
+temperature = 0.7
+
+[[query]]
+id = "048bb08b-470f-4014-aee8-b1235d4b7a5f.md"
+```
+
+**Plan structure (`internal/plan/plan.go`):**
+```go
+type Plan struct {
+    PlanID      string    `toml:"plan_id"`
+    AssistantID string    `toml:"assistant_id"`
+    Assistant   Assistant `toml:"assistant"`
+    Queries     []Query   `toml:"query"`
+}
+
+type Assistant struct {
+    SystemPrompt string `toml:"system_prompt"`
+    LLM          LLM    `toml:"llm"`
+}
+
+type LLM struct {
+    Models      []string `toml:"models"`
+    MaxTokens   int      `toml:"max_tokens"`
+    Temperature float64  `toml:"temperature"`
+}
+
+type Query struct {
+    ID string `toml:"id"`
+}
+```
+
+### 2. Execute LLM requests (MVP)
+
+For MVP implementation:
+- Read the **first** query file from `<AssistantID>/Input/` directory
+- Use the **first** model from `assistant.llm.models` array
+- Send request with system prompt from plan and query file content as user message
+- Print response to stdout
+
+**Note:** Full implementation (multiple queries, multiple models, saving responses to files) will be added in a future iteration.
+
+**Use existing library [`github.com/sashabaranov/go-openai`](https://github.com/sashabaranov/go-openai):**
+```go
+import openai "github.com/sashabaranov/go-openai"
+
+// Create client with custom base URL for OpenAI-compatible APIs
+config := openai.DefaultConfig(apiKey)
+config.BaseURL = baseURL // from LLM_BASE_URL env var
+client := openai.NewClientWithConfig(config)
+
+// Make chat completion request
+resp, err := client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+    Model: model,
+    Messages: []openai.ChatCompletionMessage{
+        {Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
+        {Role: openai.ChatMessageRoleUser, Content: userQuery},
+    },
+    Temperature: temperature,
+    MaxTokens:   maxTokens,
+})
+```
+
+### 3. Configuration
+
+Read API configuration from environment variables (vendor-neutral naming):
+- `LLM_API_TOKEN` - API token for authentication (required)
+- `LLM_BASE_URL` - Base URL for API (required, no default)
+
+## Implementation details
+
+### New packages
+
+1. `internal/plan` - Plan parsing and validation
+
+### Dependencies
+
+Add to `go.mod`:
+- `github.com/sashabaranov/go-openai` - OpenAI-compatible client
+- `github.com/BurntSushi/toml` - TOML parser
+
+### Dry-run mode
+
+When `--dry-run` is specified:
+- Parse and validate the plan
+- Print what would be executed:
+  - Plan ID and Assistant ID
+  - Models list from `assistant.llm.models`
+  - Query IDs from `query` array
+  - LLM parameters (temperature, max_tokens)
+- Do NOT make actual API calls
+
+### Flags implementation (MVP)
+
+| Flag             | MVP Status                                               |
+|------------------|----------------------------------------------------------|
+| `--dry-run`      | Implemented                                              |
+| `--parallel, -p` | Stub: prints "not implemented" warning, uses default (1) |
+| `--continue`     | Stub: prints "not implemented" warning                   |
+
+## Edge Cases
+
+- Plan file not found by PlanID → error with suggestion to run `tuna plan` first
+- Invalid TOML syntax → error with parse details
+- `plan_id` in file doesn't match PlanID argument → error
+- Missing `LLM_API_TOKEN` env var → error with setup instructions
+- Missing `LLM_BASE_URL` env var → error with setup instructions
+- Empty `models` array in plan → error
+- Query file referenced in plan not found → error with file path
+- API request fails → error with response details (status code, message)
+
+## Acceptance criteria
+
+### Core functionality
+- [ ] Plan is located by PlanID using glob pattern
+- [ ] Plan is parsed from `plan.toml` into a typed Go struct
+- [ ] `plan_id` in file is validated against PlanID argument
+- [ ] Query file content is read from `<AssistantID>/Input/`
+
+### LLM integration
+- [ ] LLM requests use `github.com/sashabaranov/go-openai` library
+- [ ] Command reads `LLM_API_TOKEN` and `LLM_BASE_URL` from environment
+- [ ] Command makes a successful request using first model and first query
+- [ ] Response is printed to stdout
+
+### Flags
+- [ ] `--dry-run` shows execution plan without API calls
+- [ ] `--parallel` prints "not implemented" warning
+- [ ] `--continue` prints "not implemented" warning
+
+### Error handling
+- [ ] Clear error for missing plan file
+- [ ] Clear error for missing environment variables
+- [ ] Clear error for invalid TOML or mismatched plan_id
