@@ -11,3 +11,6 @@
 *.env
 *.hosts
 http-client.private.env.json
+
+# ai agent data
+.claude
