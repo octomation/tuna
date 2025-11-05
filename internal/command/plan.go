@@ -1,7 +1,12 @@
 package command
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/spf13/cobra"
+
+	"go.octolab.org/template/tool/internal/plan"
 )
 
 // Plan returns a cobra.Command to create an execution plan.
@@ -20,19 +25,44 @@ func Plan() *cobra.Command {
 		Long: `Plan creates a TOML configuration file that defines an execution session.
 
 The plan includes:
-  - Plan ID (UUID)
-  - Assistant ID
-  - Compiled system prompt
-  - List of input files
-  - Target models list
-  - Execution parameters`,
+  - Plan ID (UUID v4)
+  - Compiled system prompt (from System prompt/ directory)
+  - List of input queries (from Input/ directory)
+  - Target models and execution parameters
+
+Output: <AssistantID>/Output/<plan_id>/plan.toml`,
 
 		Args: cobra.ExactArgs(1),
-		Run: func(cmd *cobra.Command, args []string) {
-			cmd.Printf("Creating plan for assistant: %s\n", args[0])
-			cmd.Printf("  Models:      %s\n", models)
-			cmd.Printf("  Temperature: %.1f\n", temperature)
-			cmd.Printf("  Max tokens:  %d\n", maxTokens)
+		RunE: func(cmd *cobra.Command, args []string) error {
+			assistantID := args[0]
+
+			cwd, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("failed to get working directory: %w", err)
+			}
+
+			cfg := plan.Config{
+				Models:      plan.ParseModels(models),
+				Temperature: temperature,
+				MaxTokens:   maxTokens,
+			}
+
+			result, err := plan.Generate(cwd, assistantID, cfg)
+			if err != nil {
+				return err
+			}
+
+			// Print summary
+			cmd.Printf("Plan created: %s\n", result.PlanPath)
+			cmd.Printf("  Plan ID: %s\n", result.PlanID)
+			cmd.Printf("  Models:  %d\n", result.ModelsCount)
+			cmd.Printf("  Queries: %d\n", result.QueriesCount)
+
+			if result.QueriesCount == 0 {
+				cmd.Println("\nWarning: No input queries found. Add .txt or .md files to Input/ directory.")
+			}
+
+			return nil
 		},
 	}
 
