@@ -2,18 +2,16 @@ package command
 
 import (
 	"github.com/spf13/cobra"
-
-	"go.octolab.org/template/tool/internal/command/demo"
 )
 
 // New returns the new root command.
 func New() *cobra.Command {
 	command := cobra.Command{
-		Use:   "%template%",
-		Short: "%template%",
-		Long:  "%template%",
-
-		Args: cobra.NoArgs,
+		Use:   "tuna",
+		Short: "Prompt engineering automation tool",
+		Long: `Tuna is a CLI utility that automates the routine of testing and comparing
+LLM prompts across multiple models. It helps teams iterate on system prompts
+efficiently by organizing inputs, outputs, and execution plans.`,
 
 		SilenceErrors: false,
 		SilenceUsage:  true,
@@ -21,9 +19,9 @@ func New() *cobra.Command {
 
 	/* configure instance */
 	command.AddCommand(
-		demo.Panic(),
-		demo.Stderr(),
-		demo.Stdout(),
+		Init(),
+		Plan(),
+		Exec(),
 	)
 
 	return &command
