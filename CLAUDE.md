@@ -29,9 +29,9 @@ AssistantID/
 
 ### Plan
 
-A Toml configuration file that defines an execution session:
+A TOML configuration file that defines an execution session:
+- Plan ID (UUID)
 - Assistant ID (folder name)
-- Session ID (UUID)
 - Compiled system prompt
 - List of input files
 - Target models list
@@ -112,3 +112,8 @@ tuna/
 - Use interfaces for LLM clients to enable easy testing and model additions
 - Keep the codebase idiomatic Go (no over-engineering)
 - Document public APIs with Go doc comments
+
+## Language Guidelines
+
+- **Code and files**: Always write in English (code, comments, documentation, commit messages, file names)
+- **Communication**: Respond in the same language the user writes in
