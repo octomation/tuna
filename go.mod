@@ -1,6 +1,8 @@
 module go.octolab.org/toolset/tuna
 
-go 1.20
+go 1.25.0
+
+toolchain go1.25.4
 
 require (
 	github.com/fatih/color v1.16.0
@@ -15,11 +17,11 @@ require (
 	go.octolab.org/toolkit/config v0.0.4
 )
 
-replace go.octolab.org => ../../octolab/pkg
+replace go.octolab.org => github.com/octolab/pkg v0.12.2
 
-replace go.octolab.org/toolkit/cli => ../../octolab/cli
+replace go.octolab.org/toolkit/cli => github.com/octolab/cli v0.6.3
 
-replace go.octolab.org/toolkit/config => ../../octolab/config
+replace go.octolab.org/toolkit/config => github.com/octolab/config v0.0.0-20220326135914-d8771f2543c7
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
