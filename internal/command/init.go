@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"go.octolab.org/template/tool/internal/assistant"
+	"go.octolab.org/toolset/tuna/internal/assistant"
 )
 
 // Init returns a cobra.Command to initialize project structure for a new assistant.

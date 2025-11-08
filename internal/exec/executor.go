@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"go.octolab.org/template/tool/internal/llm"
-	"go.octolab.org/template/tool/internal/plan"
+	"go.octolab.org/toolset/tuna/internal/llm"
+	"go.octolab.org/toolset/tuna/internal/plan"
 )
 
 // Options holds execution options.

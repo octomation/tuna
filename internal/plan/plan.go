@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/pelletier/go-toml/v2"
 
-	"go.octolab.org/template/tool/internal/assistant"
+	"go.octolab.org/toolset/tuna/internal/assistant"
 )
 
 // Config holds the plan configuration from CLI flags.

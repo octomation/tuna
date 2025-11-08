@@ -1,4 +1,4 @@
-module go.octolab.org/template/tool
+module go.octolab.org/toolset/tuna
 
 go 1.20
 

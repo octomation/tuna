@@ -193,9 +193,9 @@ For more details please visit [the page](https://install.octolab.org/).
 
 ```bash
 # use standard go tools
-$ go get go.octolab.org/template/tool@latest
+$ go get go.octolab.org/toolset/tuna@latest
 # or use egg tool
-$ egg tools add go.octolab.org/template/tool@latest
+$ egg tools add go.octolab.org/toolset/tuna@latest
 ```
 
 For more details please visit [the page](https://egg.octolab.org/).
@@ -264,10 +264,10 @@ $ source <(tool completion)
 [awesome.page]:     https://awesome-go.com/project-layout/
 [coverage.icon]:    https://codecov.io/gh/octomation/go-tool/branch/main/graph/badge.svg
 [coverage.page]:    https://codecov.io/gh/octomation/go-tool
-[quality.icon]:     https://goreportcard.com/badge/go.octolab.org/template/tool
-[quality.page]:     https://goreportcard.com/report/go.octolab.org/template/tool
-[docs.icon]:        https://pkg.go.dev/badge/go.octolab.org/template/tool.svg
-[docs.page]:        https://pkg.go.dev/go.octolab.org/template/tool
+[quality.icon]:     https://goreportcard.com/badge/go.octolab.org/toolset/tuna
+[quality.page]:     https://goreportcard.com/report/go.octolab.org/toolset/tuna
+[docs.icon]:        https://pkg.go.dev/badge/go.octolab.org/toolset/tuna.svg
+[docs.page]:        https://pkg.go.dev/go.octolab.org/toolset/tuna
 [build.icon]:       https://img.shields.io/badge/ci%2Fcd-GitHub%20Actions-brightgreen
 [build.page]:       https://github.com/octomation/go-tool/actions
 [site.icon]:        https://img.shields.io/badge/site-GitHub%20Pages-brightgreen

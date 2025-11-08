@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"go.octolab.org/template/tool/internal/plan"
+	"go.octolab.org/toolset/tuna/internal/plan"
 )
 
 func TestDryRun(t *testing.T) {

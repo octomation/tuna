@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"go.octolab.org/template/tool/internal/plan"
+	"go.octolab.org/toolset/tuna/internal/plan"
 )
 
 // Plan returns a cobra.Command to create an execution plan.
