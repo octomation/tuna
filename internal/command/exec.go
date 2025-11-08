@@ -83,20 +83,32 @@ MVP: Executes only the first query with the first model.`,
 			})
 
 			ctx := context.Background()
-			result, err := executor.Execute(ctx)
+			summary, err := executor.Execute(ctx)
 			if err != nil {
 				return err
 			}
 
-			// Print result
-			cmd.Printf("Query: %s\n", result.QueryID)
-			cmd.Printf("Model: %s\n", result.Model)
-			cmd.Printf("Tokens: %d prompt + %d output = %d total\n",
-				result.PromptTokens, result.OutputTokens,
-				result.PromptTokens+result.OutputTokens)
-			cmd.Println()
-			cmd.Println("--- Response ---")
-			cmd.Println(result.Response)
+			// Print summary
+			cmd.Printf("Execution complete\n\n")
+			cmd.Printf("Plan:      %s\n", planID)
+			cmd.Printf("Queries:   %d\n", summary.TotalQueries)
+			cmd.Printf("Models:    %d\n", summary.TotalModels)
+			cmd.Printf("Tokens:    %d prompt + %d output = %d total\n\n",
+				summary.TotalTokens.Prompt,
+				summary.TotalTokens.Output,
+				summary.TotalTokens.Prompt+summary.TotalTokens.Output)
+
+			cmd.Println("Results:")
+			for _, result := range summary.Results {
+				cmd.Printf("  + %s -> %s\n", result.QueryID, result.OutputPath)
+			}
+
+			if len(summary.Errors) > 0 {
+				cmd.Println("\nErrors:")
+				for _, err := range summary.Errors {
+					cmd.Printf("  x %s\n", err)
+				}
+			}
 
 			return nil
 		},

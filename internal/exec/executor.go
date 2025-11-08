@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"go.octolab.org/template/tool/internal/llm"
 	"go.octolab.org/template/tool/internal/plan"
@@ -17,13 +18,26 @@ type Options struct {
 	Continue bool
 }
 
-// Result holds execution result.
+// Result holds execution result for a single query-model pair.
 type Result struct {
 	Response     string
 	Model        string
 	QueryID      string
+	OutputPath   string // Path where response was saved
 	PromptTokens int
 	OutputTokens int
+}
+
+// ExecutionSummary holds results for the entire plan execution.
+type ExecutionSummary struct {
+	Results      []Result
+	TotalQueries int
+	TotalModels  int
+	TotalTokens  struct {
+		Prompt int
+		Output int
+	}
+	Errors []error
 }
 
 // Executor handles plan execution.
@@ -49,41 +63,33 @@ func (e *Executor) DryRun() string {
 	var output string
 
 	output += fmt.Sprintf("Plan ID:      %s\n", e.plan.PlanID)
-	output += fmt.Sprintf("Assistant ID: %s\n", e.plan.AssistantID)
-	output += "\n"
+	output += fmt.Sprintf("Assistant ID: %s\n\n", e.plan.AssistantID)
 
-	output += "Models:\n"
-	for i, model := range e.plan.Assistant.LLM.Models {
-		marker := "  "
-		if i == 0 {
-			marker = "* " // MVP: first model will be used
+	output += "Execution matrix:\n"
+	for _, model := range e.plan.Assistant.LLM.Models {
+		hash := ModelHash(model)
+		output += fmt.Sprintf("\n  Model: %s (hash: %s)\n", model, hash)
+		for _, query := range e.plan.Queries {
+			baseName := strings.TrimSuffix(query.ID, filepath.Ext(query.ID))
+			outputPath := fmt.Sprintf("Output/%s/%s/%s_response.md",
+				e.plan.PlanID, hash, baseName)
+			output += fmt.Sprintf("    %s -> %s\n", query.ID, outputPath)
 		}
-		output += fmt.Sprintf("  %s%s\n", marker, model)
 	}
-	output += "\n"
 
-	output += "Queries:\n"
-	for i, query := range e.plan.Queries {
-		marker := "  "
-		if i == 0 {
-			marker = "* " // MVP: first query will be used
-		}
-		output += fmt.Sprintf("  %s%s\n", marker, query.ID)
-	}
-	output += "\n"
-
-	output += "LLM Parameters:\n"
+	output += "\nLLM Parameters:\n"
 	output += fmt.Sprintf("  Temperature: %.1f\n", e.plan.Assistant.LLM.Temperature)
-	output += fmt.Sprintf("  Max tokens:  %d\n", e.plan.Assistant.LLM.MaxTokens)
-	output += "\n"
+	output += fmt.Sprintf("  Max tokens:  %d\n\n", e.plan.Assistant.LLM.MaxTokens)
 
-	output += "(MVP: only first model and first query will be executed)\n"
+	total := len(e.plan.Assistant.LLM.Models) * len(e.plan.Queries)
+	output += fmt.Sprintf("Total requests: %d (%d models x %d queries)\n",
+		total, len(e.plan.Assistant.LLM.Models), len(e.plan.Queries))
 
 	return output
 }
 
-// Execute runs the plan (MVP: first query with first model).
-func (e *Executor) Execute(ctx context.Context) (*Result, error) {
+// Execute runs the plan for all queries and all models.
+func (e *Executor) Execute(ctx context.Context) (*ExecutionSummary, error) {
 	// Validate plan has required data
 	if len(e.plan.Assistant.LLM.Models) == 0 {
 		return nil, fmt.Errorf("no models specified in plan")
@@ -92,10 +98,35 @@ func (e *Executor) Execute(ctx context.Context) (*Result, error) {
 		return nil, fmt.Errorf("no queries specified in plan")
 	}
 
-	// MVP: use first model and first query
-	model := e.plan.Assistant.LLM.Models[0]
-	queryID := e.plan.Queries[0].ID
+	writer := NewResponseWriter(e.assistantDir, e.plan.PlanID)
+	summary := &ExecutionSummary{
+		TotalQueries: len(e.plan.Queries),
+		TotalModels:  len(e.plan.Assistant.LLM.Models),
+	}
 
+	// Iterate over all models
+	for _, model := range e.plan.Assistant.LLM.Models {
+		// Iterate over all queries
+		for _, query := range e.plan.Queries {
+			result, err := e.executeOne(ctx, model, query.ID, writer)
+			if err != nil {
+				summary.Errors = append(summary.Errors, fmt.Errorf(
+					"model=%s query=%s: %w", model, query.ID, err,
+				))
+				continue
+			}
+
+			summary.Results = append(summary.Results, *result)
+			summary.TotalTokens.Prompt += result.PromptTokens
+			summary.TotalTokens.Output += result.OutputTokens
+		}
+	}
+
+	return summary, nil
+}
+
+// executeOne runs a single query with a single model.
+func (e *Executor) executeOne(ctx context.Context, model, queryID string, writer *ResponseWriter) (*Result, error) {
 	// Read query file
 	queryPath := filepath.Join(e.assistantDir, "Input", queryID)
 	queryContent, err := os.ReadFile(queryPath)
@@ -115,10 +146,17 @@ func (e *Executor) Execute(ctx context.Context) (*Result, error) {
 		return nil, err
 	}
 
+	// Save response to file
+	outputPath, err := writer.Write(model, queryID, resp.Content)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Result{
 		Response:     resp.Content,
 		Model:        resp.Model,
 		QueryID:      queryID,
+		OutputPath:   outputPath,
 		PromptTokens: resp.PromptTokens,
 		OutputTokens: resp.OutputTokens,
 	}, nil
