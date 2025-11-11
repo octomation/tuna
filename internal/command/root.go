@@ -22,6 +22,7 @@ efficiently by organizing inputs, outputs, and execution plans.`,
 		Init(),
 		Plan(),
 		Exec(),
+		Config(),
 	)
 
 	return &command

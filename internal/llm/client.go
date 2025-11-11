@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	openai "github.com/sashabaranov/go-openai"
+	api "github.com/sashabaranov/go-openai"
 )
 
 const (
@@ -37,18 +37,18 @@ func ConfigFromEnv() (*Config, error) {
 	}, nil
 }
 
-// Client wraps the OpenAI client for LLM interactions.
+// Client wraps the OpenAI-compatible client for LLM interactions.
 type Client struct {
-	client *openai.Client
+	client *api.Client
 }
 
 // NewClient creates a new LLM client with the given configuration.
 func NewClient(cfg *Config) *Client {
-	config := openai.DefaultConfig(cfg.APIToken)
+	config := api.DefaultConfig(cfg.APIToken)
 	config.BaseURL = cfg.BaseURL
 
 	return &Client{
-		client: openai.NewClientWithConfig(config),
+		client: api.NewClientWithConfig(config),
 	}
 }
 
@@ -71,11 +71,11 @@ type ChatResponse struct {
 
 // Chat sends a chat completion request and returns the response.
 func (c *Client) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
-	resp, err := c.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+	resp, err := c.client.CreateChatCompletion(ctx, api.ChatCompletionRequest{
 		Model: req.Model,
-		Messages: []openai.ChatCompletionMessage{
-			{Role: openai.ChatMessageRoleSystem, Content: req.SystemPrompt},
-			{Role: openai.ChatMessageRoleUser, Content: req.UserMessage},
+		Messages: []api.ChatCompletionMessage{
+			{Role: api.ChatMessageRoleSystem, Content: req.SystemPrompt},
+			{Role: api.ChatMessageRoleUser, Content: req.UserMessage},
 		},
 		Temperature: float32(req.Temperature),
 		MaxTokens:   req.MaxTokens,

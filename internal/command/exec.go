@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"go.octolab.org/toolset/tuna/internal/config"
 	"go.octolab.org/toolset/tuna/internal/exec"
 	"go.octolab.org/toolset/tuna/internal/llm"
 	"go.octolab.org/toolset/tuna/internal/plan"
@@ -27,11 +28,12 @@ func Exec() *cobra.Command {
 		Short: "Execute a plan",
 		Long: `Execute runs the specified plan, sending queries to the configured models.
 
-Environment variables required:
-  LLM_API_TOKEN  API token for authentication
-  LLM_BASE_URL   Base URL for OpenAI-compatible API
+Configuration is loaded from (in order of priority):
+  1. .tuna.toml in current directory or parent directories
+  2. ~/.config/tuna.toml
+  3. Environment variables (deprecated): LLM_API_TOKEN, LLM_BASE_URL
 
-MVP: Executes only the first query with the first model.`,
+Use 'tuna config show' to see the current configuration.`,
 
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -66,17 +68,25 @@ MVP: Executes only the first query with the first model.`,
 				return nil
 			}
 
-			// Load LLM config from environment
-			llmCfg, err := llm.ConfigFromEnv()
+			// Load configuration
+			cfgResult, err := config.Load()
 			if err != nil {
 				return err
 			}
 
-			// Create LLM client
-			llmClient := llm.NewClient(llmCfg)
+			// Show deprecation warning if using environment variables
+			if cfgResult.Deprecated {
+				cmd.PrintErrln(config.DeprecationWarning())
+			}
+
+			// Create router
+			router, err := llm.NewRouter(cfgResult.Config)
+			if err != nil {
+				return err
+			}
 
 			// Execute
-			executor := exec.New(p, assistantDir, llmClient, exec.Options{
+			executor := exec.New(p, assistantDir, router, exec.Options{
 				DryRun:   dryRun,
 				Parallel: parallel,
 				Continue: continueOp,

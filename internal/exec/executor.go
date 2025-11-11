@@ -44,12 +44,12 @@ type ExecutionSummary struct {
 type Executor struct {
 	plan         *plan.Plan
 	assistantDir string
-	llmClient    *llm.Client
+	llmClient    llm.ChatClient
 	options      Options
 }
 
 // New creates a new executor for the given plan.
-func New(p *plan.Plan, assistantDir string, llmClient *llm.Client, opts Options) *Executor {
+func New(p *plan.Plan, assistantDir string, llmClient llm.ChatClient, opts Options) *Executor {
 	return &Executor{
 		plan:         p,
 		assistantDir: assistantDir,

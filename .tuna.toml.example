@@ -1,0 +1,61 @@
+# Tuna Configuration File
+# Copy this file to .tuna.toml in your project root or ~/.config/tuna.toml
+
+# Default provider used when model is not found in any provider's model list.
+# This should match one of the provider names defined below.
+default_provider = "openrouter"
+
+# Model aliases for convenience.
+# Short name -> full model name mapping.
+# Use aliases in CLI: tuna plan MyAssistant --models "sonnet,gpt4"
+[aliases]
+sonnet = "claude-sonnet-4-20250514"
+haiku = "claude-haiku-3-5-20241022"
+gpt4 = "gpt-4o"
+gpt4-mini = "gpt-4o-mini"
+llama = "meta-llama/llama-3.3-70b-instruct"
+
+# OpenRouter - aggregator with access to multiple models
+[[providers]]
+name = "openrouter"
+base_url = "https://openrouter.ai/api/v1"
+api_token_env = "OPENROUTER_API_KEY"  # Set: export OPENROUTER_API_KEY=your-key
+rate_limit = "10rpm"                  # 10 requests per minute
+models = [
+    # Models available on OpenRouter use provider/model format
+    "anthropic/claude-sonnet-4",
+    "openai/gpt-4o",
+    "google/gemini-2.0-flash",
+    "meta-llama/llama-3.3-70b-instruct",
+]
+
+# Anthropic - direct access to Claude models
+[[providers]]
+name = "anthropic"
+base_url = "https://api.anthropic.com/v1"
+api_token_env = "ANTHROPIC_API_KEY"  # Set: export ANTHROPIC_API_KEY=your-key
+rate_limit = "60rpm"                 # Adjust based on your tier
+models = [
+    "claude-sonnet-4-20250514",
+    "claude-haiku-3-5-20241022",
+]
+
+# OpenAI - direct access to GPT models
+[[providers]]
+name = "openai"
+base_url = "https://api.openai.com/v1"
+api_token_env = "OPENAI_API_KEY"  # Set: export OPENAI_API_KEY=your-key
+rate_limit = "500rpm"             # Adjust based on your tier
+models = [
+    "gpt-4o",
+    "gpt-4o-mini",
+    "o1",
+]
+
+# Example: Custom/self-hosted provider
+# [[providers]]
+# name = "local"
+# base_url = "http://localhost:8080/v1"
+# api_token_env = "LOCAL_API_KEY"
+# # No rate_limit - unlimited requests
+# models = ["llama-3.1-8b"]

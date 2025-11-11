@@ -15,6 +15,7 @@ require (
 	go.octolab.org v0.12.2
 	go.octolab.org/toolkit/cli v0.6.3
 	go.octolab.org/toolkit/config v0.0.4
+	golang.org/x/time v0.14.0
 )
 
 replace go.octolab.org => github.com/octolab/pkg v0.12.2

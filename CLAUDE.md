@@ -58,9 +58,87 @@ tuna exec <PlanID> [flags]
 
 ## Configuration
 
-Environment variables for LLM integration:
-- `LLM_API_TOKEN` - API token for authentication (required for `exec`)
-- `LLM_BASE_URL` - Base URL for OpenAI-compatible API (required for `exec`)
+Tuna supports multiple LLM providers via a TOML configuration file. Configuration is loaded from (in order of priority):
+
+1. `.tuna.toml` in current directory or parent directories
+2. `~/.config/tuna.toml`
+3. Environment variables (deprecated): `LLM_API_TOKEN`, `LLM_BASE_URL`
+
+### Configuration File Format
+
+```toml
+# Default provider used when model is not found in any provider's model list
+default_provider = "openrouter"
+
+# Model aliases for convenience (short name -> full model name)
+[aliases]
+sonnet = "claude-sonnet-4-20250514"
+haiku = "claude-haiku-3-5-20241022"
+gpt4 = "gpt-4o"
+
+[[providers]]
+name = "openrouter"
+base_url = "https://openrouter.ai/api/v1"
+api_token_env = "OPENROUTER_API_KEY"  # Reference to env variable
+rate_limit = "10rpm"                   # 10 requests per minute
+models = [
+    "anthropic/claude-sonnet-4",
+    "openai/gpt-4o",
+    "meta-llama/llama-3.3-70b-instruct",
+]
+
+[[providers]]
+name = "anthropic"
+base_url = "https://api.anthropic.com/v1"
+api_token_env = "ANTHROPIC_API_KEY"
+rate_limit = "60rpm"
+models = [
+    "claude-sonnet-4-20250514",
+    "claude-haiku-3-5-20241022",
+]
+
+[[providers]]
+name = "openai"
+base_url = "https://api.openai.com/v1"
+api_token_env = "OPENAI_API_KEY"
+models = ["gpt-4o", "gpt-4o-mini"]
+```
+
+### Rate Limiting
+
+Rate limits are specified in the format `<value><unit>`:
+- `rps` - requests per second (e.g., `5rps`)
+- `rpm` - requests per minute (e.g., `60rpm`)
+- `rph` - requests per hour (e.g., `100rph`)
+
+If no rate limit is specified, requests are unlimited.
+
+### Configuration Commands
+
+```bash
+# Show current configuration
+tuna config show
+
+# Validate configuration file
+tuna config validate
+
+# Show which provider will be used for a model
+tuna config resolve <model>
+```
+
+### Example Usage with Aliases
+
+```bash
+# Plan with aliases - much shorter than full model names
+tuna plan MyAssistant --models "sonnet,gpt4"
+
+# Mix aliases with full names
+tuna plan MyAssistant --models "sonnet,gpt-4o-mini"
+
+# Check alias resolution
+tuna config resolve sonnet
+# Output: sonnet -> claude-sonnet-4-20250514 -> anthropic
+```
 
 ## Project Structure
 
@@ -71,13 +149,33 @@ tuna/
 ├── go.sum               # Go module checksums
 ├── Makefile             # Build automation
 ├── Taskfile             # Task runner configuration
+├── .tuna.toml           # Project-level configuration (optional)
 ├── internal/            # Internal packages (not exported)
 │   ├── command/         # CLI command implementations
-│   │   ├── demo/        # Demo commands (stdout, stderr, panic)
 │   │   ├── root.go      # Root command and CLI setup
-│   │   └── root_test.go # Root command tests
-│   └── config/          # Configuration management
-│       └── features.go  # Feature flags and settings
+│   │   ├── init.go      # Init command
+│   │   ├── plan.go      # Plan command
+│   │   ├── exec.go      # Exec command
+│   │   └── config.go    # Config command (show, validate, resolve)
+│   ├── config/          # Configuration management
+│   │   ├── config.go    # Config structures and validation
+│   │   ├── loader.go    # TOML loading with priority resolution
+│   │   └── features.go  # Feature flags and settings
+│   ├── llm/             # LLM client implementations
+│   │   ├── interface.go # ChatClient interface
+│   │   ├── client.go    # Single provider client
+│   │   └── router.go    # Multi-provider router
+│   ├── exec/            # Plan execution
+│   │   ├── executor.go  # Execution logic
+│   │   ├── writer.go    # Response file writer
+│   │   └── hash.go      # Model hash generation
+│   ├── plan/            # Plan management
+│   │   ├── plan.go      # Plan structures
+│   │   └── loader.go    # Plan loading
+│   └── assistant/       # Assistant management
+│       ├── init.go      # Assistant initialization
+│       ├── files.go     # File operations
+│       └── prompt.go    # System prompt compilation
 └── tools/               # Go tool dependencies
     ├── go.mod
     └── tools.go         # Tool imports for go generate
