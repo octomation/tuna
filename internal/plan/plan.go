@@ -1,12 +1,14 @@
 package plan
 
 import (
+	"crypto/rand"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
-	"github.com/google/uuid"
+	"github.com/oklog/ulid/v2"
 	"github.com/pelletier/go-toml/v2"
 
 	"go.octolab.org/toolset/tuna/internal/assistant"
@@ -63,7 +65,7 @@ func Generate(baseDir, assistantID string, cfg Config) (*Result, error) {
 	}
 
 	// Generate plan ID
-	planID := uuid.New().String()
+	planID := ulid.MustNew(ulid.Timestamp(time.Now()), rand.Reader).String()
 
 	// Compile system prompt
 	systemPrompt, err := assistant.CompileSystemPrompt(assistantDir)

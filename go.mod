@@ -7,7 +7,7 @@ toolchain go1.25.4
 require (
 	github.com/fatih/color v1.16.0
 	github.com/golang/mock v1.6.0
-	github.com/google/uuid v1.6.0
+	github.com/oklog/ulid/v2 v2.1.1
 	github.com/pelletier/go-toml/v2 v2.0.0-beta.8
 	github.com/sashabaranov/go-openai v1.41.2
 	github.com/spf13/cobra v1.8.0

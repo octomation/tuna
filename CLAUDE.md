@@ -30,7 +30,7 @@ AssistantID/
 ### Plan
 
 A TOML configuration file that defines an execution plan:
-- Plan ID (UUID)
+- Plan ID (ULID)
 - Assistant ID (folder name)
 - Compiled system prompt
 - List of input files

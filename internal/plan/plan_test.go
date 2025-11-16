@@ -48,9 +48,9 @@ func TestGenerate(t *testing.T) {
 			t.Error("plan.toml was not created")
 		}
 
-		// Verify UUID format (should be 36 characters: 8-4-4-4-12)
-		if len(result.PlanID) != 36 {
-			t.Errorf("Invalid UUID format: %s", result.PlanID)
+		// Verify ULID format (should be 26 characters, Crockford Base32)
+		if len(result.PlanID) != 26 {
+			t.Errorf("Invalid ULID format: %s", result.PlanID)
 		}
 
 		if result.ModelsCount != 2 {
