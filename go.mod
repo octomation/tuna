@@ -13,16 +13,10 @@ require (
 	github.com/spf13/cobra v1.8.0
 	github.com/stretchr/testify v1.8.4
 	go.octolab.org v0.12.2
-	go.octolab.org/toolkit/cli v0.6.3
-	go.octolab.org/toolkit/config v0.0.4
+	go.octolab.org/toolkit/cli v0.6.4
+	go.octolab.org/toolkit/config v0.0.5
 	golang.org/x/time v0.14.0
 )
-
-replace go.octolab.org => github.com/octolab/pkg v0.12.2
-
-replace go.octolab.org/toolkit/cli => github.com/octolab/cli v0.6.3
-
-replace go.octolab.org/toolkit/config => github.com/octolab/config v0.0.0-20220326135914-d8771f2543c7
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
