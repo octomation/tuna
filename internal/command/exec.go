@@ -5,12 +5,15 @@ import (
 	"fmt"
 	"os"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
 	"go.octolab.org/toolset/tuna/internal/config"
 	"go.octolab.org/toolset/tuna/internal/exec"
 	"go.octolab.org/toolset/tuna/internal/llm"
 	"go.octolab.org/toolset/tuna/internal/plan"
+	"go.octolab.org/toolset/tuna/internal/tui"
+	tuiexec "go.octolab.org/toolset/tuna/internal/tui/exec"
 )
 
 // Exec returns a cobra.Command to execute a plan.
@@ -85,42 +88,11 @@ Use 'tuna config show' to see the current configuration.`,
 				return err
 			}
 
-			// Execute
-			executor := exec.New(p, assistantDir, router, exec.Options{
-				DryRun:   dryRun,
-				Parallel: parallel,
-				Continue: continueOp,
-			})
-
-			ctx := context.Background()
-			summary, err := executor.Execute(ctx)
-			if err != nil {
-				return err
+			// Execute with TUI or non-interactive mode
+			if tui.IsInteractive() {
+				return executeWithTUI(cmd, p, assistantDir, router, planID, parallel, continueOp)
 			}
-
-			// Print summary
-			cmd.Printf("Execution complete\n\n")
-			cmd.Printf("Plan:      %s\n", planID)
-			cmd.Printf("Queries:   %d\n", summary.TotalQueries)
-			cmd.Printf("Models:    %d\n", summary.TotalModels)
-			cmd.Printf("Tokens:    %d prompt + %d output = %d total\n\n",
-				summary.TotalTokens.Prompt,
-				summary.TotalTokens.Output,
-				summary.TotalTokens.Prompt+summary.TotalTokens.Output)
-
-			cmd.Println("Results:")
-			for _, result := range summary.Results {
-				cmd.Printf("  + %s -> %s\n", result.QueryID, result.OutputPath)
-			}
-
-			if len(summary.Errors) > 0 {
-				cmd.Println("\nErrors:")
-				for _, err := range summary.Errors {
-					cmd.Printf("  x %s\n", err)
-				}
-			}
-
-			return nil
+			return executeNonInteractive(cmd, p, assistantDir, router, planID, parallel, continueOp)
 		},
 	}
 
@@ -129,4 +101,123 @@ Use 'tuna config show' to see the current configuration.`,
 	command.Flags().BoolVar(&continueOp, "continue", false, "Continue from last checkpoint if interrupted")
 
 	return &command
+}
+
+func executeWithTUI(cmd *cobra.Command, p *plan.Plan, assistantDir string, router llm.ChatClient, planID string, parallel int, continueOp bool) error {
+	// Create TUI model
+	models := p.Assistant.LLM.Models
+	queries := make([]string, len(p.Queries))
+	for i, q := range p.Queries {
+		queries[i] = q.ID
+	}
+
+	model := tuiexec.New(models, queries)
+	program := tea.NewProgram(model, tea.WithAltScreen())
+
+	// Create executor with progress callback
+	executor := exec.New(p, assistantDir, router, exec.Options{
+		Parallel: parallel,
+		Continue: continueOp,
+		OnProgress: func(event exec.ProgressEvent) {
+			switch event.Type {
+			case exec.EventTaskStart:
+				program.Send(tuiexec.TaskStartMsg{
+					Model:   event.Model,
+					QueryID: event.QueryID,
+				})
+			case exec.EventTaskDone:
+				program.Send(tuiexec.TaskDoneMsg{
+					Model:   event.Model,
+					QueryID: event.QueryID,
+					Tokens: tuiexec.TokenUsage{
+						Prompt: event.Tokens.Prompt,
+						Output: event.Tokens.Output,
+					},
+					Duration: event.Duration,
+				})
+			case exec.EventTaskError:
+				program.Send(tuiexec.TaskErrorMsg{
+					Model:   event.Model,
+					QueryID: event.QueryID,
+					Err:     event.Err,
+				})
+			}
+		},
+	})
+
+	// Run executor in background
+	var summary *exec.ExecutionSummary
+	var execErr error
+
+	go func() {
+		ctx := context.Background()
+		summary, execErr = executor.Execute(ctx)
+		program.Send(tuiexec.ExecutionDoneMsg{Err: execErr})
+	}()
+
+	// Run TUI
+	if _, err := program.Run(); err != nil {
+		return fmt.Errorf("TUI error: %w", err)
+	}
+
+	// Print final summary (already shown in TUI, but add results list)
+	if summary != nil && len(summary.Results) > 0 {
+		cmd.Println()
+		cmd.Println(tui.Bold.Render("Output files:"))
+		for _, result := range summary.Results {
+			cmd.Printf("  %s %s\n", tui.SymbolSuccess, result.OutputPath)
+		}
+	}
+
+	return execErr
+}
+
+func executeNonInteractive(cmd *cobra.Command, p *plan.Plan, assistantDir string, router llm.ChatClient, planID string, parallel int, continueOp bool) error {
+	// Execute
+	executor := exec.New(p, assistantDir, router, exec.Options{
+		Parallel: parallel,
+		Continue: continueOp,
+		OnProgress: func(event exec.ProgressEvent) {
+			// Simple progress output for non-interactive mode
+			switch event.Type {
+			case exec.EventTaskStart:
+				cmd.Printf("  Processing %s with %s...\n", event.QueryID, event.Model)
+			case exec.EventTaskDone:
+				cmd.Printf("  ✓ %s -> %s (%d tokens)\n", event.QueryID, event.Model,
+					event.Tokens.Prompt+event.Tokens.Output)
+			case exec.EventTaskError:
+				cmd.Printf("  ✗ %s -> %s: %v\n", event.QueryID, event.Model, event.Err)
+			}
+		},
+	})
+
+	ctx := context.Background()
+	summary, err := executor.Execute(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Print summary
+	cmd.Printf("\nExecution complete\n\n")
+	cmd.Printf("Plan:      %s\n", planID)
+	cmd.Printf("Queries:   %d\n", summary.TotalQueries)
+	cmd.Printf("Models:    %d\n", summary.TotalModels)
+	cmd.Printf("Tokens:    %d prompt + %d output = %d total\n\n",
+		summary.TotalTokens.Prompt,
+		summary.TotalTokens.Output,
+		summary.TotalTokens.Prompt+summary.TotalTokens.Output)
+
+	cmd.Println("Results:")
+	for _, result := range summary.Results {
+		cmd.Printf("  + %s -> %s\n", result.QueryID, result.OutputPath)
+	}
+
+	if len(summary.Errors) > 0 {
+		cmd.Println("\nErrors:")
+		for _, err := range summary.Errors {
+			cmd.Printf("  x %s\n", err)
+		}
+	}
+
+	return nil
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"go.octolab.org/toolset/tuna/internal/assistant"
+	"go.octolab.org/toolset/tuna/internal/tui"
 )
 
 // Init returns a cobra.Command to initialize project structure for a new assistant.
@@ -39,30 +40,47 @@ Existing files will not be overwritten.`,
 				return fmt.Errorf("failed to get working directory: %w", err)
 			}
 
-			result, err := assistant.Init(cwd, assistantID)
+			var result *assistant.InitResult
+			err = tui.RunWithSpinner("Initializing assistant structure", func() error {
+				var initErr error
+				result, initErr = assistant.Init(cwd, assistantID)
+				return initErr
+			})
 			if err != nil {
 				return err
 			}
 
-			// Print summary
-			if len(result.Created) > 0 {
-				cmd.Println("Created:")
-				for _, item := range result.Created {
-					cmd.Printf("  + %s\n", item)
-				}
-			}
+			// Print summary with styled output
+			if tui.IsInteractive() {
+				cmd.Print(tui.RenderCreated(result.Created))
+				cmd.Print(tui.RenderSkipped(result.Skipped))
 
-			if len(result.Skipped) > 0 {
-				cmd.Println("Skipped (already exists):")
-				for _, item := range result.Skipped {
-					cmd.Printf("  - %s\n", item)
+				if len(result.Created) == 0 && len(result.Skipped) > 0 {
+					cmd.Println(tui.RenderInfo("Assistant structure already complete."))
+				} else {
+					cmd.Println(tui.RenderSuccess(fmt.Sprintf("Assistant '%s' initialized successfully.", assistantID)))
 				}
-			}
-
-			if len(result.Created) == 0 && len(result.Skipped) > 0 {
-				cmd.Println("\nAssistant structure already complete.")
 			} else {
-				cmd.Printf("\nAssistant '%s' initialized successfully.\n", assistantID)
+				// Non-interactive fallback
+				if len(result.Created) > 0 {
+					cmd.Println("Created:")
+					for _, item := range result.Created {
+						cmd.Printf("  + %s\n", item)
+					}
+				}
+
+				if len(result.Skipped) > 0 {
+					cmd.Println("Skipped (already exists):")
+					for _, item := range result.Skipped {
+						cmd.Printf("  - %s\n", item)
+					}
+				}
+
+				if len(result.Created) == 0 && len(result.Skipped) > 0 {
+					cmd.Println("\nAssistant structure already complete.")
+				} else {
+					cmd.Printf("\nAssistant '%s' initialized successfully.\n", assistantID)
+				}
 			}
 
 			return nil

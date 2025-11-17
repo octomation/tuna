@@ -3,9 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 
-	"github.com/fatih/color"
 	"go.octolab.org/errors"
 	"go.octolab.org/safe"
 	"go.octolab.org/toolkit/cli/cobra"
@@ -22,8 +22,8 @@ var (
 	date    = unknown
 	version = "dev"
 	exit    = os.Exit
-	stderr  = color.Error
-	stdout  = color.Output
+	stderr  io.Writer = os.Stderr
+	stdout  io.Writer = os.Stdout
 )
 
 func main() {

@@ -6,16 +6,46 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"go.octolab.org/toolset/tuna/internal/llm"
 	"go.octolab.org/toolset/tuna/internal/plan"
 )
+
+// ProgressCallback is called during execution to report progress.
+type ProgressCallback func(event ProgressEvent)
+
+// ProgressEvent represents an execution progress event.
+type ProgressEvent struct {
+	Type     ProgressEventType
+	Model    string
+	QueryID  string
+	Tokens   TokenUsage
+	Duration time.Duration
+	Err      error
+}
+
+// ProgressEventType indicates the type of progress event.
+type ProgressEventType int
+
+const (
+	EventTaskStart ProgressEventType = iota
+	EventTaskDone
+	EventTaskError
+)
+
+// TokenUsage holds token counts for prompt and output.
+type TokenUsage struct {
+	Prompt int
+	Output int
+}
 
 // Options holds execution options.
 type Options struct {
 	DryRun   bool
 	Parallel int
 	Continue bool
+	OnProgress ProgressCallback
 }
 
 // Result holds execution result for a single query-model pair.
@@ -108,17 +138,53 @@ func (e *Executor) Execute(ctx context.Context) (*ExecutionSummary, error) {
 	for _, model := range e.plan.Assistant.LLM.Models {
 		// Iterate over all queries
 		for _, query := range e.plan.Queries {
+			// Notify start
+			if e.options.OnProgress != nil {
+				e.options.OnProgress(ProgressEvent{
+					Type:    EventTaskStart,
+					Model:   model,
+					QueryID: query.ID,
+				})
+			}
+
+			start := time.Now()
 			result, err := e.executeOne(ctx, model, query.ID, writer)
+			duration := time.Since(start)
+
 			if err != nil {
 				summary.Errors = append(summary.Errors, fmt.Errorf(
 					"model=%s query=%s: %w", model, query.ID, err,
 				))
+				// Notify error
+				if e.options.OnProgress != nil {
+					e.options.OnProgress(ProgressEvent{
+						Type:     EventTaskError,
+						Model:    model,
+						QueryID:  query.ID,
+						Duration: duration,
+						Err:      err,
+					})
+				}
 				continue
 			}
 
 			summary.Results = append(summary.Results, *result)
 			summary.TotalTokens.Prompt += result.PromptTokens
 			summary.TotalTokens.Output += result.OutputTokens
+
+			// Notify done
+			if e.options.OnProgress != nil {
+				e.options.OnProgress(ProgressEvent{
+					Type:    EventTaskDone,
+					Model:   model,
+					QueryID: query.ID,
+					Tokens: TokenUsage{
+						Prompt: result.PromptTokens,
+						Output: result.OutputTokens,
+					},
+					Duration: duration,
+				})
+			}
 		}
 	}
 
@@ -160,4 +226,18 @@ func (e *Executor) executeOne(ctx context.Context, model, queryID string, writer
 		PromptTokens: resp.PromptTokens,
 		OutputTokens: resp.OutputTokens,
 	}, nil
+}
+
+// Models returns the list of models from the plan.
+func (e *Executor) Models() []string {
+	return e.plan.Assistant.LLM.Models
+}
+
+// QueryIDs returns the list of query IDs from the plan.
+func (e *Executor) QueryIDs() []string {
+	ids := make([]string, len(e.plan.Queries))
+	for i, q := range e.plan.Queries {
+		ids[i] = q.ID
+	}
+	return ids
 }

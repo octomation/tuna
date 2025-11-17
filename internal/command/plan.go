@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"go.octolab.org/toolset/tuna/internal/plan"
+	"go.octolab.org/toolset/tuna/internal/tui"
 )
 
 // Plan returns a cobra.Command to create an execution plan.
@@ -47,19 +48,39 @@ Output: <AssistantID>/Output/<plan_id>/plan.toml`,
 				MaxTokens:   maxTokens,
 			}
 
-			result, err := plan.Generate(cwd, assistantID, cfg)
+			var result *plan.Result
+			err = tui.RunWithSpinner("Generating execution plan", func() error {
+				var genErr error
+				result, genErr = plan.Generate(cwd, assistantID, cfg)
+				return genErr
+			})
 			if err != nil {
 				return err
 			}
 
-			// Print summary
-			cmd.Printf("Plan created: %s\n", result.PlanPath)
-			cmd.Printf("  Plan ID: %s\n", result.PlanID)
-			cmd.Printf("  Models:  %d\n", result.ModelsCount)
-			cmd.Printf("  Queries: %d\n", result.QueriesCount)
+			// Print summary with styled output
+			if tui.IsInteractive() {
+				cmd.Println(tui.RenderSuccess("Plan created"))
+				cmd.Println()
+				cmd.Println(tui.RenderKeyValue("Path", result.PlanPath))
+				cmd.Println(tui.RenderKeyValue("Plan ID", tui.Bold.Render(result.PlanID)))
+				cmd.Println(tui.RenderKeyValue("Models", fmt.Sprintf("%d", result.ModelsCount)))
+				cmd.Println(tui.RenderKeyValue("Queries", fmt.Sprintf("%d", result.QueriesCount)))
 
-			if result.QueriesCount == 0 {
-				cmd.Println("\nWarning: No input queries found. Add .txt or .md files to Input/ directory.")
+				if result.QueriesCount == 0 {
+					cmd.Println()
+					cmd.Println(tui.RenderWarning("No input queries found. Add .txt or .md files to Input/ directory."))
+				}
+			} else {
+				// Non-interactive fallback
+				cmd.Printf("Plan created: %s\n", result.PlanPath)
+				cmd.Printf("  Plan ID: %s\n", result.PlanID)
+				cmd.Printf("  Models:  %d\n", result.ModelsCount)
+				cmd.Printf("  Queries: %d\n", result.QueriesCount)
+
+				if result.QueriesCount == 0 {
+					cmd.Println("\nWarning: No input queries found. Add .txt or .md files to Input/ directory.")
+				}
 			}
 
 			return nil
