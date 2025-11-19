@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -117,7 +118,9 @@ func Generate(baseDir, assistantID string, cfg Config) (*Result, error) {
 		return nil, fmt.Errorf("failed to marshal plan: %w", err)
 	}
 
-	if err := os.WriteFile(planPath, data, 0644); err != nil {
+	formatted := formatTOML(data)
+
+	if err := os.WriteFile(planPath, formatted, 0644); err != nil {
 		return nil, fmt.Errorf("failed to write plan.toml: %w", err)
 	}
 
@@ -143,4 +146,25 @@ func ParseModels(modelsStr string) []string {
 		}
 	}
 	return models
+}
+
+// formatTOML adds consistent spacing between TOML sections.
+// It ensures exactly one blank line before each section header
+// and exactly one newline at the end of the file.
+func formatTOML(data []byte) []byte {
+	s := string(data)
+
+	// First, normalize: collapse multiple blank lines into one
+	multipleBlankLines := regexp.MustCompile(`\n{3,}`)
+	s = multipleBlankLines.ReplaceAllString(s, "\n\n")
+
+	// Add blank line before section headers if not already present
+	// Matches [section] or [[array]] at the start of a line
+	sectionHeader := regexp.MustCompile(`(?m)([^\n])\n(\[)`)
+	s = sectionHeader.ReplaceAllString(s, "$1\n\n$2")
+
+	// Ensure exactly one trailing newline
+	s = strings.TrimRight(s, "\n") + "\n"
+
+	return []byte(s)
 }
