@@ -59,6 +59,10 @@ type Result struct {
 func Generate(baseDir, assistantID string, cfg Config) (*Result, error) {
 	assistantDir := filepath.Join(baseDir, assistantID)
 
+	// Normalize assistantID to extract clean folder name
+	// This handles cases like "test-assistant/" or "./path/to/assistant"
+	normalizedID := filepath.Base(filepath.Clean(assistantID))
+
 	// Validate assistant directory exists
 	if _, err := os.Stat(assistantDir); os.IsNotExist(err) {
 		return nil, fmt.Errorf("assistant directory not found: %s", assistantDir)
@@ -88,7 +92,7 @@ func Generate(baseDir, assistantID string, cfg Config) (*Result, error) {
 	// Build plan
 	plan := Plan{
 		PlanID:      planID,
-		AssistantID: assistantID,
+		AssistantID: normalizedID,
 		Assistant: Assistant{
 			SystemPrompt: systemPrompt,
 			LLM: LLM{

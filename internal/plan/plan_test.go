@@ -160,6 +160,52 @@ func TestGenerate(t *testing.T) {
 		}
 	})
 
+	t.Run("normalizes assistantID with trailing slash", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		assistantDir := filepath.Join(tmpDir, "test-assistant")
+
+		if err := os.MkdirAll(filepath.Join(assistantDir, "Input"), 0755); err != nil {
+			t.Fatalf("Failed to create Input dir: %v", err)
+		}
+		if err := os.MkdirAll(filepath.Join(assistantDir, "Output"), 0755); err != nil {
+			t.Fatalf("Failed to create Output dir: %v", err)
+		}
+		if err := os.MkdirAll(filepath.Join(assistantDir, "System prompt"), 0755); err != nil {
+			t.Fatalf("Failed to create System prompt dir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(assistantDir, "System prompt", "prompt.md"), []byte("test"), 0644); err != nil {
+			t.Fatalf("Failed to create prompt file: %v", err)
+		}
+
+		cfg := Config{
+			Models:      []string{"model"},
+			Temperature: 0.7,
+			MaxTokens:   4096,
+		}
+
+		// Pass assistantID with trailing slash
+		result, err := Generate(tmpDir, "test-assistant/", cfg)
+		if err != nil {
+			t.Fatalf("Generate() error = %v", err)
+		}
+
+		// Read the plan and verify AssistantID is normalized
+		data, err := os.ReadFile(result.PlanPath)
+		if err != nil {
+			t.Fatalf("Failed to read plan.toml: %v", err)
+		}
+
+		var plan Plan
+		if err := toml.Unmarshal(data, &plan); err != nil {
+			t.Fatalf("Failed to unmarshal plan.toml: %v", err)
+		}
+
+		// AssistantID should not contain trailing slash
+		if plan.AssistantID != "test-assistant" {
+			t.Errorf("AssistantID should be 'test-assistant', got '%s'", plan.AssistantID)
+		}
+	})
+
 	t.Run("creates correct output directory structure", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		assistantDir := filepath.Join(tmpDir, "test-assistant")
