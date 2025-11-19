@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -247,7 +248,7 @@ func TestConfig_Validate(t *testing.T) {
 		assert.Contains(t, err.Error(), "base_url is required")
 	})
 
-	t.Run("provider missing api_token_env", func(t *testing.T) {
+	t.Run("provider missing both api_token and api_token_env", func(t *testing.T) {
 		cfg := &Config{
 			DefaultProvider: "openai",
 			Providers: []Provider{
@@ -260,7 +261,40 @@ func TestConfig_Validate(t *testing.T) {
 
 		err := cfg.Validate()
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "api_token_env is required")
+		assert.Contains(t, err.Error(), "either api_token or api_token_env is required")
+	})
+
+	t.Run("provider with direct api_token is valid", func(t *testing.T) {
+		cfg := &Config{
+			DefaultProvider: "openai",
+			Providers: []Provider{
+				{
+					Name:     "openai",
+					BaseURL:  "https://api.openai.com/v1",
+					APIToken: "sk-test-token",
+				},
+			},
+		}
+
+		err := cfg.Validate()
+		assert.NoError(t, err)
+	})
+
+	t.Run("provider with both api_token and api_token_env is valid", func(t *testing.T) {
+		cfg := &Config{
+			DefaultProvider: "openai",
+			Providers: []Provider{
+				{
+					Name:        "openai",
+					BaseURL:     "https://api.openai.com/v1",
+					APIToken:    "sk-test-token",
+					APITokenEnv: "OPENAI_API_KEY",
+				},
+			},
+		}
+
+		err := cfg.Validate()
+		assert.NoError(t, err)
 	})
 
 	t.Run("provider invalid rate limit", func(t *testing.T) {
@@ -459,9 +493,87 @@ func TestConfig_ValidateMultipleErrors(t *testing.T) {
 	// - alias key cannot be empty
 	// - alias model name cannot be empty
 	// - provider missing base_url
-	// - provider missing api_token_env
+	// - provider missing api_token or api_token_env
 	// - duplicate provider name
 	// - invalid rate limit format
 	// - default provider not found
 	assert.GreaterOrEqual(t, errorCount, 5, "expected at least 5 errors, got: %s", errStr)
+}
+
+func TestProvider_ResolveAPIToken(t *testing.T) {
+	t.Run("direct api_token takes precedence", func(t *testing.T) {
+		// Set env variable to verify it's not used
+		t.Setenv("TEST_API_KEY", "env-token")
+
+		p := Provider{
+			APIToken:    "direct-token",
+			APITokenEnv: "TEST_API_KEY",
+		}
+
+		token, err := p.ResolveAPIToken()
+		require.NoError(t, err)
+		assert.Equal(t, "direct-token", token)
+	})
+
+	t.Run("falls back to api_token_env", func(t *testing.T) {
+		t.Setenv("TEST_API_KEY", "env-token")
+
+		p := Provider{
+			APITokenEnv: "TEST_API_KEY",
+		}
+
+		token, err := p.ResolveAPIToken()
+		require.NoError(t, err)
+		assert.Equal(t, "env-token", token)
+	})
+
+	t.Run("error when env variable is not set", func(t *testing.T) {
+		// Ensure the env variable is not set
+		os.Unsetenv("NONEXISTENT_API_KEY")
+
+		p := Provider{
+			APITokenEnv: "NONEXISTENT_API_KEY",
+		}
+
+		token, err := p.ResolveAPIToken()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "NONEXISTENT_API_KEY")
+		assert.Contains(t, err.Error(), "is not set")
+		assert.Empty(t, token)
+	})
+
+	t.Run("error when neither is specified", func(t *testing.T) {
+		p := Provider{}
+
+		token, err := p.ResolveAPIToken()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "neither api_token nor api_token_env")
+		assert.Empty(t, token)
+	})
+
+	t.Run("empty api_token falls back to api_token_env", func(t *testing.T) {
+		t.Setenv("TEST_API_KEY", "env-token")
+
+		p := Provider{
+			APIToken:    "", // explicitly empty
+			APITokenEnv: "TEST_API_KEY",
+		}
+
+		token, err := p.ResolveAPIToken()
+		require.NoError(t, err)
+		assert.Equal(t, "env-token", token)
+	})
+
+	t.Run("empty env variable returns error", func(t *testing.T) {
+		t.Setenv("EMPTY_API_KEY", "")
+
+		p := Provider{
+			APITokenEnv: "EMPTY_API_KEY",
+		}
+
+		token, err := p.ResolveAPIToken()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "is not set")
+		assert.Empty(t, token)
+	})
 }

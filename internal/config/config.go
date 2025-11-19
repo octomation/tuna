@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"os"
 	"regexp"
 	"strconv"
 	"time"
@@ -19,9 +20,27 @@ type Config struct {
 type Provider struct {
 	Name        string   `toml:"name"`
 	BaseURL     string   `toml:"base_url"`
-	APITokenEnv string   `toml:"api_token_env"`
+	APIToken    string   `toml:"api_token"`     // Direct token value
+	APITokenEnv string   `toml:"api_token_env"` // Environment variable reference
 	RateLimit   string   `toml:"rate_limit"`
 	Models      []string `toml:"models"`
+}
+
+// ResolveAPIToken returns the API token using priority:
+// 1. Direct api_token value
+// 2. Value from api_token_env environment variable
+// Returns error if no token is available.
+func (p *Provider) ResolveAPIToken() (string, error) {
+	if p.APIToken != "" {
+		return p.APIToken, nil
+	}
+	if p.APITokenEnv != "" {
+		if token := os.Getenv(p.APITokenEnv); token != "" {
+			return token, nil
+		}
+		return "", fmt.Errorf("environment variable %q is not set", p.APITokenEnv)
+	}
+	return "", errors.New("neither api_token nor api_token_env is specified")
 }
 
 // RateLimit represents a parsed rate limit value.
@@ -108,8 +127,8 @@ func (c *Config) Validate() error {
 			errs = append(errs, fmt.Errorf("provider[%d] %q: base_url is required", i, p.Name))
 		}
 
-		if p.APITokenEnv == "" {
-			errs = append(errs, fmt.Errorf("provider[%d] %q: api_token_env is required", i, p.Name))
+		if p.APIToken == "" && p.APITokenEnv == "" {
+			errs = append(errs, fmt.Errorf("provider[%d] %q: either api_token or api_token_env is required", i, p.Name))
 		}
 
 		if p.RateLimit != "" {

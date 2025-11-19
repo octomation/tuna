@@ -3,7 +3,6 @@ package llm
 import (
 	"context"
 	"fmt"
-	"os"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -39,10 +38,10 @@ func NewRouter(cfg *config.Config) (*Router, error) {
 
 	// Create clients and rate limiters for each provider
 	for _, p := range cfg.Providers {
-		// Get API token from environment
-		token := os.Getenv(p.APITokenEnv)
-		if token == "" {
-			return nil, fmt.Errorf("missing environment variable %s for provider %q", p.APITokenEnv, p.Name)
+		// Resolve API token (direct value or from environment)
+		token, err := p.ResolveAPIToken()
+		if err != nil {
+			return nil, fmt.Errorf("provider %q: %w", p.Name, err)
 		}
 
 		// Create client
