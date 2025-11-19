@@ -52,10 +52,13 @@ models = [
     "o1",
 ]
 
-# Example: Custom/self-hosted provider
+# Example: Custom/self-hosted provider with direct API token
+# Use api_token for local development or when you don't want to use env variables.
+# NOTE: If using api_token directly, ensure .tuna.toml is in .gitignore!
 # [[providers]]
 # name = "local"
 # base_url = "http://localhost:8080/v1"
-# api_token_env = "LOCAL_API_KEY"
+# api_token = "sk-local-..."       # Direct token value (takes precedence over api_token_env)
+# api_token_env = "LOCAL_API_KEY"  # Fallback if api_token is empty
 # # No rate_limit - unlimited requests
 # models = ["llama-3.1-8b"]

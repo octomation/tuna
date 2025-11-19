@@ -28,12 +28,10 @@ echo "You are a helpful assistant." > my-assistant/System\ prompt/fragment_001.m
 # Add test queries
 echo "Explain quantum computing in simple terms." > my-assistant/Input/query_001.md
 
-# Create an execution plan
-tuna plan my-assistant --models claude-sonnet-4-20250514,gpt-4o
+# Create an execution plan (use aliases or full model names)
+tuna plan my-assistant --models sonnet,gpt4
 
 # Run it
-export LLM_BASE_URL="https://api.openai.com/v1"
-export LLM_API_TOKEN="your-token"
 tuna exec <plan-id>
 ```
 
@@ -54,10 +52,23 @@ my-assistant/
 
 ## Configuration
 
-| Variable        | Description                        |
-|-----------------|------------------------------------|
-| `LLM_BASE_URL`  | Base URL for OpenAI-compatible API |
-| `LLM_API_TOKEN` | API token for authentication       |
+Create `.tuna.toml` in your project root (or `~/.config/tuna.toml` for global config):
+
+```toml
+default_provider = "openrouter"
+
+[aliases]
+sonnet = "claude-sonnet-4-20250514"
+gpt4 = "gpt-4o"
+
+[[providers]]
+name = "openrouter"
+base_url = "https://openrouter.ai/api/v1"
+api_token_env = "OPENROUTER_API_KEY"  # or use api_token = "sk-..." directly
+models = ["anthropic/claude-sonnet-4", "openai/gpt-4o"]
+```
+
+See [.tuna.toml.example](.tuna.toml.example) for a complete configuration reference.
 
 ## Installation
 

@@ -104,6 +104,33 @@ api_token_env = "OPENAI_API_KEY"
 models = ["gpt-4o", "gpt-4o-mini"]
 ```
 
+### API Token Configuration
+
+Each provider requires an API token. You can specify it in two ways:
+
+1. **Direct token** (`api_token`) - specify the token value directly in the config:
+   ```toml
+   [[providers]]
+   name = "openrouter"
+   base_url = "https://openrouter.ai/api/v1"
+   api_token = "sk-or-v1-..."  # Direct token value
+   ```
+
+2. **Environment variable reference** (`api_token_env`) - reference an environment variable:
+   ```toml
+   [[providers]]
+   name = "openrouter"
+   base_url = "https://openrouter.ai/api/v1"
+   api_token_env = "OPENROUTER_API_KEY"  # Read from $OPENROUTER_API_KEY
+   ```
+
+**Token resolution priority:**
+- If `api_token` is set, it is used directly
+- Otherwise, the value is read from the environment variable specified in `api_token_env`
+- At least one of these fields must be provided
+
+**Security note:** When using `api_token` directly, ensure your `.tuna.toml` is in `.gitignore` to avoid committing secrets. For shared projects, prefer `api_token_env`.
+
 ### Rate Limiting
 
 Rate limits are specified in the format `<value><unit>`:
