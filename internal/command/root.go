@@ -34,6 +34,7 @@ efficiently by organizing inputs, outputs, and execution plans.`,
 		Init(),
 		Plan(),
 		Exec(),
+		View(),
 		Config(),
 	)
 

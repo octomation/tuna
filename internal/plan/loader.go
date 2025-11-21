@@ -45,6 +45,21 @@ func Load(baseDir, planID string) (*Plan, string, error) {
 	return &plan, planPath, nil
 }
 
+// LoadFromPath loads a plan directly from a plan.toml file path.
+func LoadFromPath(planPath string) (*Plan, error) {
+	data, err := os.ReadFile(planPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read plan file: %w", err)
+	}
+
+	var plan Plan
+	if err := toml.Unmarshal(data, &plan); err != nil {
+		return nil, fmt.Errorf("failed to parse plan.toml: %w", err)
+	}
+
+	return &plan, nil
+}
+
 // AssistantDir returns the assistant directory path from plan.toml path.
 func AssistantDir(planPath string) string {
 	// planPath: <base>/<AssistantID>/Output/<planID>/plan.toml
