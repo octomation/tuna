@@ -158,35 +158,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) calculateLayout() {
-	// Calculate column width and visible columns based on terminal width
-	minColWidth := 30
-	maxColWidth := 60
-	padding := 4 // Border + spacing
+	// Layout rules:
+	// - Maximum 3 columns visible at once
+	// - Columns fill all available horizontal space
+	// - If more than 3 models, horizontal scrolling is enabled
+	const maxVisibleCols = 3
 
-	// Try to fit as many columns as possible
-	availableWidth := m.width - padding
-	m.columnWidth = availableWidth / 2
-	if m.columnWidth < minColWidth {
-		m.columnWidth = minColWidth
-		m.visibleCols = 1
-	} else if m.columnWidth > maxColWidth {
-		m.columnWidth = maxColWidth
-		m.visibleCols = availableWidth / (m.columnWidth + 2)
-	} else {
-		m.visibleCols = 2
-	}
-
-	// Cap visible columns by actual model count
+	// Get model count for current query
+	modelCount := 0
 	if len(m.groups) > 0 && m.queryIndex < len(m.groups) {
-		modelCount := len(m.groups[m.queryIndex].Responses)
-		if m.visibleCols > modelCount {
-			m.visibleCols = modelCount
-		}
+		modelCount = len(m.groups[m.queryIndex].Responses)
 	}
 
-	// Ensure at least 1 visible column
+	// Determine number of visible columns: min(modelCount, maxVisibleCols)
+	m.visibleCols = modelCount
+	if m.visibleCols > maxVisibleCols {
+		m.visibleCols = maxVisibleCols
+	}
 	if m.visibleCols < 1 {
 		m.visibleCols = 1
+	}
+
+	// Calculate column width to fill available space
+	// Account for borders (2 chars per column) and gaps between columns
+	borderWidth := 2 * m.visibleCols
+	gapWidth := m.visibleCols - 1 // 1 char gap between columns
+	availableWidth := m.width - borderWidth - gapWidth
+
+	m.columnWidth = availableWidth / m.visibleCols
+	if m.columnWidth < 20 {
+		m.columnWidth = 20 // Absolute minimum for readability
 	}
 }
 
@@ -198,14 +199,14 @@ func (m *Model) updateViewports() {
 	responses := m.groups[m.queryIndex].Responses
 	m.viewports = make([]viewport.Model, len(responses))
 
-	// Calculate viewport height: total height - header - input - footer
-	vpHeight := m.height - 10
+	// Calculate viewport height: total height - header(2) - input(2) - column header(2) - footer(1) - borders(2)
+	vpHeight := m.height - 9
 	if vpHeight < 5 {
 		vpHeight = 5
 	}
 
-	// Calculate content width inside viewport (minus borders and padding)
-	contentWidth := m.columnWidth - 4
+	// Calculate content width inside viewport (minus borders)
+	contentWidth := m.columnWidth - 2
 	if contentWidth < 10 {
 		contentWidth = 10
 	}
@@ -364,7 +365,7 @@ func (m Model) viewColumns() string {
 
 func (m Model) renderColumn(resp view.ModelResponse, idx, total int, focused bool) string {
 	// Header: model name + rating + position
-	modelName := truncate(resp.Model, m.columnWidth-15)
+	modelName := truncate(resp.Model, m.columnWidth-20)
 
 	ratingStr := ""
 	switch resp.Rating {
@@ -389,14 +390,27 @@ func (m Model) renderColumn(resp view.ModelResponse, idx, total int, focused boo
 		content = tui.Muted.Render("(no response)")
 	}
 
-	fullContent := header + "\n" + strings.Repeat("-", m.columnWidth-4) + "\n" + content
+	// Separator line
+	separatorWidth := m.columnWidth - 2
+	if separatorWidth < 5 {
+		separatorWidth = 5
+	}
+	separator := strings.Repeat("─", separatorWidth)
+
+	fullContent := header + "\n" + separator + "\n" + content
+
+	// Column height: total height - header area(4) - footer(1) - border(2)
+	colHeight := m.height - 7
+	if colHeight < 5 {
+		colHeight = 5
+	}
 
 	// Apply border style based on focus
 	var style lipgloss.Style
 	if focused {
-		style = focusedBorder.Width(m.columnWidth).Height(m.height - 8)
+		style = focusedBorder.Width(m.columnWidth).Height(colHeight)
 	} else {
-		style = unfocusedBorder.Width(m.columnWidth).Height(m.height - 8)
+		style = unfocusedBorder.Width(m.columnWidth).Height(colHeight)
 	}
 
 	return style.Render(fullContent)
