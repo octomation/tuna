@@ -36,17 +36,18 @@ var (
 
 // Model is the bubbletea model for the response viewer.
 type Model struct {
-	planID       string
-	groups       []view.ResponseGroup
-	queryIndex   int
-	focusIndex   int                // Currently focused column
-	scrollOffset int                // Horizontal scroll offset (first visible column)
-	viewports    []viewport.Model
-	width        int
-	height       int
-	columnWidth  int
-	visibleCols  int // Number of columns that fit on screen
-	showHelp     bool
+	planID        string
+	groups        []view.ResponseGroup
+	queryIndex    int
+	focusIndex    int // Currently focused column
+	scrollOffset  int // Horizontal scroll offset (first visible column)
+	viewports     []viewport.Model
+	width         int
+	height        int
+	columnWidth   int
+	visibleCols   int  // Number of columns that fit on screen
+	showHelp      bool
+	inputExpanded bool // Whether input query section is expanded
 }
 
 // New creates a new view TUI model.
@@ -129,6 +130,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "?":
 			m.showHelp = !m.showHelp
 
+		case "tab":
+			m.inputExpanded = !m.inputExpanded
+			m.updateViewports() // Recalculate column heights
+
 		case "pgup":
 			if m.focusIndex < len(m.viewports) {
 				m.viewports[m.focusIndex].HalfViewUp()
@@ -199,8 +204,9 @@ func (m *Model) updateViewports() {
 	responses := m.groups[m.queryIndex].Responses
 	m.viewports = make([]viewport.Model, len(responses))
 
-	// Calculate viewport height: total height - header(2) - input(2) - column header(2) - footer(1) - borders(2)
-	vpHeight := m.height - 9
+	// Calculate viewport height: total height - header(2) - input section - column header(2) - footer(1) - borders(2)
+	inputH := m.inputHeight()
+	vpHeight := m.height - inputH - 7
 	if vpHeight < 5 {
 		vpHeight = 5
 	}
@@ -317,20 +323,109 @@ func (m Model) viewHeader() string {
 	return headerStyle.Render(strings.Join(parts, "  |  "))
 }
 
+// inputHeight returns the number of lines used by the input section.
+func (m Model) inputHeight() int {
+	if len(m.groups) == 0 || m.queryIndex >= len(m.groups) {
+		return 2 // header + empty line
+	}
+
+	if m.inputExpanded {
+		// Count actual lines in input, but cap at 30% of screen height
+		lines := strings.Count(m.groups[m.queryIndex].InputText, "\n") + 1
+		maxLines := m.height * 30 / 100
+		if maxLines < 3 {
+			maxLines = 3
+		}
+		if lines > maxLines {
+			lines = maxLines
+		}
+		return lines + 2 // +2 for header and border/spacing
+	}
+
+	return 4 // header + 2 lines of content + hint
+}
+
 func (m Model) viewInput() string {
 	if len(m.groups) == 0 || m.queryIndex >= len(m.groups) {
 		return ""
 	}
 
+	// Handle case when width is not yet initialized
+	width := m.width
+	if width < 20 {
+		width = 80 // Default fallback
+	}
+
 	group := m.groups[m.queryIndex]
-	header := tui.Bold.Render(fmt.Sprintf("Input: %s", group.QueryID))
 
-	// Show first line or truncated input
-	inputPreview := strings.Split(group.InputText, "\n")[0]
-	inputPreview = truncate(inputPreview, m.width-10)
-	content := tui.Muted.Render(inputPreview)
+	// Build header with expand/collapse indicator
+	expandIndicator := "[Tab to expand]"
+	if m.inputExpanded {
+		expandIndicator = "[Tab to collapse]"
+	}
+	header := fmt.Sprintf("%s  %s",
+		tui.Bold.Render(fmt.Sprintf("Input: %s", group.QueryID)),
+		tui.Muted.Render(expandIndicator))
 
-	return fmt.Sprintf("%s\n%s", header, content)
+	// Safe line truncation helper
+	truncateLine := func(line string, maxLen int) string {
+		if maxLen < 10 {
+			maxLen = 10
+		}
+		if len(line) <= maxLen {
+			return line
+		}
+		return line[:maxLen-3] + "..."
+	}
+
+	// Show content based on expanded state
+	var content string
+	if m.inputExpanded {
+		// Show full content (up to 30% of screen height)
+		maxLines := m.height * 30 / 100
+		if maxLines < 3 {
+			maxLines = 3
+		}
+		lines := strings.Split(group.InputText, "\n")
+		if len(lines) > maxLines {
+			lines = lines[:maxLines]
+			lines = append(lines, tui.Muted.Render("... (truncated)"))
+		}
+		// Wrap long lines
+		var wrappedLines []string
+		for _, line := range lines {
+			wrappedLines = append(wrappedLines, truncateLine(line, width-6))
+		}
+		content = strings.Join(wrappedLines, "\n")
+	} else {
+		// Show first 2 lines collapsed
+		lines := strings.Split(group.InputText, "\n")
+		previewLines := 2
+		if len(lines) < previewLines {
+			previewLines = len(lines)
+		}
+		var preview []string
+		for i := 0; i < previewLines; i++ {
+			preview = append(preview, truncateLine(lines[i], width-6))
+		}
+		if len(lines) > 2 {
+			preview = append(preview, tui.Muted.Render(fmt.Sprintf("... (+%d more lines)", len(lines)-2)))
+		}
+		content = strings.Join(preview, "\n")
+	}
+
+	// Add a border around input
+	boxWidth := width - 4
+	if boxWidth < 10 {
+		boxWidth = 10
+	}
+	inputStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(tui.ColorGray).
+		Width(boxWidth).
+		Padding(0, 1)
+
+	return header + "\n" + inputStyle.Render(content)
 }
 
 func (m Model) viewColumns() string {
@@ -399,8 +494,9 @@ func (m Model) renderColumn(resp view.ModelResponse, idx, total int, focused boo
 
 	fullContent := header + "\n" + separator + "\n" + content
 
-	// Column height: total height - header area(4) - footer(1) - border(2)
-	colHeight := m.height - 7
+	// Column height: total height - header(2) - input section - footer(1) - border(2)
+	inputH := m.inputHeight()
+	colHeight := m.height - inputH - 5
 	if colHeight < 5 {
 		colHeight = 5
 	}
@@ -417,7 +513,7 @@ func (m Model) renderColumn(resp view.ModelResponse, idx, total int, focused boo
 }
 
 func (m Model) viewFooter() string {
-	return tui.Muted.Render("< > focus   ^ v query   Space: toggle   g: good   b: bad   u: unrate   q: quit   ?: help")
+	return tui.Muted.Render("←→ focus  ↑↓ query  Tab: input  Space: toggle  g/b: rate  q: quit  ?: help")
 }
 
 func (m Model) viewHelp() string {
@@ -426,14 +522,17 @@ Keyboard Shortcuts
 ------------------
 
 Navigation:
-  Up / k       Previous query
-  Down / j     Next query
-  Left / h     Focus previous column (scrolls if needed)
-  Right / l    Focus next column (scrolls if needed)
+  ↑ / k        Previous query
+  ↓ / j        Next query
+  ← / h        Focus previous column (scrolls if needed)
+  → / l        Focus next column (scrolls if needed)
   PgUp/PgDn    Scroll content in focused column
 
+Input:
+  Tab          Expand/collapse input query section
+
 Rating (applies to focused column):
-  Space        Toggle rating (none -> good -> bad -> none)
+  Space        Toggle rating (none → good → bad → none)
   g            Mark as good
   b            Mark as bad
   u            Clear rating
