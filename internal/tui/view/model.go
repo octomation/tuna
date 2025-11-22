@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 
 	"go.octolab.org/toolset/tuna/internal/tui"
@@ -48,14 +49,27 @@ type Model struct {
 	visibleCols   int  // Number of columns that fit on screen
 	showHelp      bool
 	inputExpanded bool // Whether input query section is expanded
+	mdRenderer    *glamour.TermRenderer
+
+	// Cache for rendered markdown content (key: "queryIdx:respIdx:width")
+	renderCache     map[string]string
+	lastColumnWidth int // Track width changes for cache invalidation
 }
 
 // New creates a new view TUI model.
 func New(planID string, groups []view.ResponseGroup) Model {
+	// Create markdown renderer - use DarkStyle for faster init (no terminal detection)
+	renderer, _ := glamour.NewTermRenderer(
+		glamour.WithStylePath("dark"),
+		glamour.WithWordWrap(0), // We'll handle wrapping ourselves
+	)
+
 	return Model{
 		planID:      planID,
 		groups:      groups,
 		columnWidth: 40, // Default, recalculated on resize
+		mdRenderer:  renderer,
+		renderCache: make(map[string]string),
 	}
 }
 
@@ -78,7 +92,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "esc":
 			return m, tea.Quit
 
-		case "up", "k":
+		case "k": // Only k for previous query (not up arrow)
 			if m.queryIndex > 0 {
 				m.queryIndex--
 				m.focusIndex = 0
@@ -86,12 +100,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.updateViewports()
 			}
 
-		case "down", "j":
+		case "j": // Only j for next query (not down arrow)
 			if m.queryIndex < len(m.groups)-1 {
 				m.queryIndex++
 				m.focusIndex = 0
 				m.scrollOffset = 0
 				m.updateViewports()
+			}
+
+		case "up": // Scroll content up in focused column
+			if m.focusIndex < len(m.viewports) {
+				m.viewports[m.focusIndex].LineUp(3)
+			}
+
+		case "down": // Scroll content down in focused column
+			if m.focusIndex < len(m.viewports) {
+				m.viewports[m.focusIndex].LineDown(3)
 			}
 
 		case "left", "h":
@@ -150,6 +174,43 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.calculateLayout()
 		m.updateViewports()
+
+	case tea.MouseMsg:
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			// Scroll content up in focused column
+			if m.focusIndex < len(m.viewports) {
+				m.viewports[m.focusIndex].LineUp(3)
+			}
+		case tea.MouseButtonWheelDown:
+			// Scroll content down in focused column
+			if m.focusIndex < len(m.viewports) {
+				m.viewports[m.focusIndex].LineDown(3)
+			}
+		case tea.MouseButtonLeft:
+			// Only handle press, not release (to avoid double-toggle)
+			if msg.Action != tea.MouseActionPress {
+				break
+			}
+
+			// Check if click is in the input area (header is ~2 lines, input section follows)
+			inputAreaStart := 2 // After header
+			inputAreaEnd := inputAreaStart + m.inputHeight()
+
+			if msg.Y >= inputAreaStart && msg.Y < inputAreaEnd {
+				// Click on input area - toggle expand/collapse
+				m.inputExpanded = !m.inputExpanded
+				m.updateViewports()
+			} else if msg.Y >= inputAreaEnd {
+				// Click on column area - focus the column
+				if len(m.groups) > 0 && m.queryIndex < len(m.groups) {
+					clickedCol := m.getColumnAtX(msg.X)
+					if clickedCol >= 0 {
+						m.focusIndex = clickedCol
+					}
+				}
+			}
+		}
 	}
 
 	// Update focused viewport for scrolling within column
@@ -162,12 +223,45 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// getColumnAtX returns the column index at the given X coordinate, or -1 if none.
+func (m Model) getColumnAtX(x int) int {
+	if len(m.groups) == 0 || m.queryIndex >= len(m.groups) {
+		return -1
+	}
+
+	responses := m.groups[m.queryIndex].Responses
+	if len(responses) == 0 {
+		return -1
+	}
+
+	// Each column has width = m.columnWidth + 1 (for gap between columns)
+	colWidthWithGap := m.columnWidth + 1
+
+	// Calculate which visible column was clicked
+	visibleColIndex := x / colWidthWithGap
+
+	// Convert to actual column index (accounting for scroll offset)
+	actualColIndex := m.scrollOffset + visibleColIndex
+
+	// Validate the index
+	if actualColIndex < 0 || actualColIndex >= len(responses) {
+		return -1
+	}
+
+	// Also check if we're within visible columns
+	if visibleColIndex >= m.visibleCols {
+		return -1
+	}
+
+	return actualColIndex
+}
+
 func (m *Model) calculateLayout() {
 	// Layout rules:
-	// - Maximum 3 columns visible at once
+	// - Maximum 2 columns visible at once
 	// - Columns fill all available horizontal space
-	// - If more than 3 models, horizontal scrolling is enabled
-	const maxVisibleCols = 3
+	// - If more than 2 models, horizontal scrolling is enabled
+	const maxVisibleCols = 2
 
 	// Get model count for current query
 	modelCount := 0
@@ -217,11 +311,43 @@ func (m *Model) updateViewports() {
 		contentWidth = 10
 	}
 
+	// Invalidate cache if column width changed
+	if m.lastColumnWidth != contentWidth {
+		m.renderCache = make(map[string]string)
+		m.lastColumnWidth = contentWidth
+
+		// Recreate renderer with proper word wrap width
+		m.mdRenderer, _ = glamour.NewTermRenderer(
+			glamour.WithStylePath("dark"),
+			glamour.WithWordWrap(contentWidth),
+		)
+	}
+
 	for i, resp := range responses {
 		vp := viewport.New(contentWidth, vpHeight)
-		// Wrap content to fit the column width
-		wrapped := wrapText(resp.Content, contentWidth)
-		vp.SetContent(wrapped)
+
+		// Check cache first
+		cacheKey := fmt.Sprintf("%d:%d:%d", m.queryIndex, i, contentWidth)
+		content, cached := m.renderCache[cacheKey]
+
+		if !cached {
+			// Render markdown content
+			if m.mdRenderer != nil && resp.Content != "" {
+				rendered, err := m.mdRenderer.Render(resp.Content)
+				if err == nil {
+					content = strings.TrimSpace(rendered)
+				} else {
+					// Fallback to plain text
+					content = wrapText(resp.Content, contentWidth)
+				}
+			} else {
+				content = wrapText(resp.Content, contentWidth)
+			}
+			// Store in cache
+			m.renderCache[cacheKey] = content
+		}
+
+		vp.SetContent(content)
 		m.viewports[i] = vp
 	}
 }
@@ -440,6 +566,11 @@ func (m Model) viewColumns() string {
 		return tui.Muted.Render("No model responses found.")
 	}
 
+	// Show loading state if viewports not yet initialized
+	if len(m.viewports) == 0 {
+		return tui.Muted.Render("Loading responses...")
+	}
+
 	// Render visible columns
 	var columns []string
 	endIdx := m.scrollOffset + m.visibleCols
@@ -513,7 +644,7 @@ func (m Model) renderColumn(resp view.ModelResponse, idx, total int, focused boo
 }
 
 func (m Model) viewFooter() string {
-	return tui.Muted.Render("←→ focus  ↑↓ query  Tab: input  Space: toggle  g/b: rate  q: quit  ?: help")
+	return tui.Muted.Render("h/l: focus  j/k: query  ↑↓/scroll: content  Tab: input  g/b: rate  q: quit  ?: help")
 }
 
 func (m Model) viewHelp() string {
@@ -521,15 +652,23 @@ func (m Model) viewHelp() string {
 Keyboard Shortcuts
 ------------------
 
-Navigation:
-  ↑ / k        Previous query
-  ↓ / j        Next query
-  ← / h        Focus previous column (scrolls if needed)
-  → / l        Focus next column (scrolls if needed)
-  PgUp/PgDn    Scroll content in focused column
+Query Navigation:
+  k            Previous query
+  j            Next query
+
+Column Navigation:
+  h / ←        Focus previous column
+  l / →        Focus next column
+  Click        Focus clicked column
+
+Content Scrolling:
+  ↑ / ↓        Scroll content in focused column
+  Mouse wheel  Scroll content in focused column
+  PgUp/PgDn    Scroll half page
 
 Input:
   Tab          Expand/collapse input query section
+  Click        Expand/collapse input query section
 
 Rating (applies to focused column):
   Space        Toggle rating (none → good → bad → none)

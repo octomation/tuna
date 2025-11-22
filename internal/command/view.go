@@ -25,8 +25,10 @@ and compare responses. You can navigate between queries and models,
 and rate responses as good or bad.
 
 Navigation:
-  Up/Down      Switch between input queries
-  Left/Right   Switch between model responses
+  j/k          Switch between input queries
+  h/l          Switch between model columns
+  ↑/↓/scroll   Scroll content in focused column
+  Tab          Expand/collapse input query
   Space/g/b    Rate responses as good or bad
   u            Clear rating
   q            Quit`,
@@ -59,7 +61,7 @@ Navigation:
 			}
 
 			model := viewtui.New(planID, groups)
-			p := tea.NewProgram(model, tea.WithAltScreen())
+			p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 
 			if _, err := p.Run(); err != nil {
 				return fmt.Errorf("viewer error: %w", err)
