@@ -20,8 +20,8 @@ func TestParseResponse_NoFrontMatter(t *testing.T) {
 
 	meta, parsed, err := ParseResponse(filePath)
 	require.NoError(t, err)
-	assert.Equal(t, RatingNone, meta.Rating)
-	assert.True(t, meta.RatedAt.IsZero())
+	assert.Nil(t, meta.Rating)
+	assert.Nil(t, meta.RatedAt)
 	assert.Equal(t, content, parsed)
 }
 
@@ -40,7 +40,9 @@ This is a response with front matter.`
 
 	meta, parsed, err := ParseResponse(filePath)
 	require.NoError(t, err)
-	assert.Equal(t, RatingGood, meta.Rating)
+	require.NotNil(t, meta.Rating)
+	assert.Equal(t, "good", *meta.Rating)
+	require.NotNil(t, meta.RatedAt)
 	assert.Equal(t, 2024, meta.RatedAt.Year())
 	assert.Equal(t, time.January, meta.RatedAt.Month())
 	assert.Equal(t, 15, meta.RatedAt.Day())
@@ -49,6 +51,36 @@ This is a response with front matter.`
 	assert.NotContains(t, parsed, "---")
 	assert.NotContains(t, parsed, "rating:")
 	assert.Contains(t, parsed, "# Response")
+}
+
+func TestParseResponse_WithExecutionMetadata(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "response.md")
+	content := `---
+provider: https://openrouter.ai/api/v1
+model: anthropic/claude-sonnet-4
+duration: 2.45s
+input: 100t
+output: 200t
+executed_at: 2024-01-15T10:30:00Z
+rating: good
+rated_at: 2024-01-15T11:00:00Z
+---
+
+# Response content`
+	require.NoError(t, os.WriteFile(filePath, []byte(content), 0644))
+
+	meta, parsed, err := ParseResponse(filePath)
+	require.NoError(t, err)
+
+	assert.Equal(t, "https://openrouter.ai/api/v1", meta.Provider)
+	assert.Equal(t, "anthropic/claude-sonnet-4", meta.Model)
+	assert.Equal(t, 2450*time.Millisecond, meta.Duration)
+	assert.Equal(t, 100, meta.Input)
+	assert.Equal(t, 200, meta.Output)
+	require.NotNil(t, meta.Rating)
+	assert.Equal(t, "good", *meta.Rating)
+	assert.Contains(t, parsed, "# Response content")
 }
 
 func TestParseResponse_BadRating(t *testing.T) {
@@ -63,7 +95,8 @@ Bad response.`
 
 	meta, parsed, err := ParseResponse(filePath)
 	require.NoError(t, err)
-	assert.Equal(t, RatingBad, meta.Rating)
+	require.NotNil(t, meta.Rating)
+	assert.Equal(t, "bad", *meta.Rating)
 	assert.Contains(t, parsed, "Bad response.")
 }
 
@@ -110,11 +143,78 @@ rated_at: 2024-01-15T10:30:00Z
 	// Read back and verify
 	meta, parsed, err := ParseResponse(filePath)
 	require.NoError(t, err)
-	assert.Equal(t, RatingBad, meta.Rating)
+	require.NotNil(t, meta.Rating)
+	assert.Equal(t, "bad", *meta.Rating)
 	assert.Contains(t, parsed, "# Response")
 }
 
-func TestSaveRating_Unrate(t *testing.T) {
+func TestSaveRating_PreservesExecutionMetadata(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "response.md")
+	content := `---
+provider: https://openrouter.ai/api/v1
+model: claude-sonnet-4
+duration: 2.45s
+input: 100t
+output: 200t
+executed_at: 2024-01-15T10:30:00Z
+rating: null
+rated_at: null
+---
+
+# Response`
+	require.NoError(t, os.WriteFile(filePath, []byte(content), 0644))
+
+	err := SaveRating(filePath, RatingGood)
+	require.NoError(t, err)
+
+	// Read back and verify execution metadata is preserved
+	meta, parsed, err := ParseResponse(filePath)
+	require.NoError(t, err)
+
+	assert.Equal(t, "https://openrouter.ai/api/v1", meta.Provider)
+	assert.Equal(t, "claude-sonnet-4", meta.Model)
+	assert.Equal(t, 2450*time.Millisecond, meta.Duration)
+	assert.Equal(t, 100, meta.Input)
+	assert.Equal(t, 200, meta.Output)
+	require.NotNil(t, meta.Rating)
+	assert.Equal(t, "good", *meta.Rating)
+	require.NotNil(t, meta.RatedAt)
+	assert.Contains(t, parsed, "# Response")
+}
+
+func TestSaveRating_Unrate_PreservesExecutionMetadata(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "response.md")
+	content := `---
+provider: https://openrouter.ai/api/v1
+model: claude-sonnet-4
+duration: 2.45s
+input: 100t
+output: 200t
+executed_at: 2024-01-15T10:30:00Z
+rating: good
+rated_at: 2024-01-15T11:00:00Z
+---
+
+# Response`
+	require.NoError(t, os.WriteFile(filePath, []byte(content), 0644))
+
+	err := SaveRating(filePath, RatingNone)
+	require.NoError(t, err)
+
+	// Read back and verify - execution metadata preserved, rating removed
+	meta, parsed, err := ParseResponse(filePath)
+	require.NoError(t, err)
+
+	assert.Equal(t, "https://openrouter.ai/api/v1", meta.Provider)
+	assert.Equal(t, "claude-sonnet-4", meta.Model)
+	assert.Nil(t, meta.Rating)
+	assert.Nil(t, meta.RatedAt)
+	assert.Contains(t, parsed, "# Response")
+}
+
+func TestSaveRating_Unrate_NoExecutionMetadata(t *testing.T) {
 	dir := t.TempDir()
 	filePath := filepath.Join(dir, "response.md")
 	content := `---

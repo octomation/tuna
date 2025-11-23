@@ -5,6 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"go.octolab.org/toolset/tuna/internal/response"
 )
 
 // ResponseWriter handles saving LLM responses to files.
@@ -19,9 +22,19 @@ func NewResponseWriter(assistantDir, planID string) *ResponseWriter {
 	}
 }
 
-// Write saves a response to the appropriate file.
+// WriteOptions contains metadata to embed in the response file.
+type WriteOptions struct {
+	ProviderURL  string
+	Model        string
+	Duration     time.Duration
+	InputTokens  int
+	OutputTokens int
+}
+
+// Write saves a response to the appropriate file with metadata.
 // Path: {baseDir}/{model_hash}/{query_id}_response.md
-func (w *ResponseWriter) Write(model, queryID, content string) (string, error) {
+// Note: This completely overwrites any existing file, including previous ratings.
+func (w *ResponseWriter) Write(model, queryID, content string, opts WriteOptions) (string, error) {
 	modelDir := filepath.Join(w.baseDir, ModelHash(model))
 
 	// Create model directory if not exists
@@ -34,8 +47,26 @@ func (w *ResponseWriter) Write(model, queryID, content string) (string, error) {
 	responseFile := baseName + "_response.md"
 	responsePath := filepath.Join(modelDir, responseFile)
 
+	// Build metadata (rating fields nil = null in YAML)
+	meta := &response.Metadata{
+		Provider:   opts.ProviderURL,
+		Model:      opts.Model,
+		Duration:   opts.Duration,
+		Input:      opts.InputTokens,
+		Output:     opts.OutputTokens,
+		ExecutedAt: time.Now(),
+		Rating:     nil, // Will be set by tuna view
+		RatedAt:    nil, // Will be set by tuna view
+	}
+
+	// Format content with metadata
+	formatted, err := response.Format(meta, content)
+	if err != nil {
+		return "", fmt.Errorf("failed to format response: %w", err)
+	}
+
 	// Write response content
-	if err := os.WriteFile(responsePath, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(responsePath, []byte(formatted), 0644); err != nil {
 		return "", fmt.Errorf("failed to write response file: %w", err)
 	}
 

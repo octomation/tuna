@@ -3,17 +3,29 @@ package exec
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
+
+	"go.octolab.org/toolset/tuna/internal/response"
 )
 
 func TestResponseWriter(t *testing.T) {
-	t.Run("writes response to correct path", func(t *testing.T) {
+	defaultOpts := WriteOptions{
+		ProviderURL:  "https://api.openai.com/v1",
+		Model:        "gpt-4",
+		Duration:     1500 * time.Millisecond,
+		InputTokens:  100,
+		OutputTokens: 200,
+	}
+
+	t.Run("writes response to correct path with metadata", func(t *testing.T) {
 		tmpDir := t.TempDir()
 
 		writer := NewResponseWriter(tmpDir, "test-plan-id")
 
 		// Write response
-		path, err := writer.Write("gpt-4", "query_001.md", "Test response content")
+		path, err := writer.Write("gpt-4", "query_001.md", "Test response content", defaultOpts)
 		if err != nil {
 			t.Fatalf("Write() error = %v", err)
 		}
@@ -25,13 +37,46 @@ func TestResponseWriter(t *testing.T) {
 			t.Errorf("Write() path = %q, want %q", path, expectedPath)
 		}
 
-		// Verify file was created with correct content
+		// Verify file was created
 		content, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatalf("ReadFile() error = %v", err)
 		}
-		if string(content) != "Test response content" {
-			t.Errorf("File content = %q, want %q", string(content), "Test response content")
+
+		// Should have front matter
+		if !strings.HasPrefix(string(content), "---\n") {
+			t.Error("Expected file to start with front matter")
+		}
+
+		// Parse and verify metadata
+		meta, parsedContent, err := response.Parse(path)
+		if err != nil {
+			t.Fatalf("Parse() error = %v", err)
+		}
+
+		if meta.Provider != defaultOpts.ProviderURL {
+			t.Errorf("Provider = %q, want %q", meta.Provider, defaultOpts.ProviderURL)
+		}
+		if meta.Model != defaultOpts.Model {
+			t.Errorf("Model = %q, want %q", meta.Model, defaultOpts.Model)
+		}
+		if meta.Duration != defaultOpts.Duration {
+			t.Errorf("Duration = %v, want %v", meta.Duration, defaultOpts.Duration)
+		}
+		if meta.Input != defaultOpts.InputTokens {
+			t.Errorf("Input = %d, want %d", meta.Input, defaultOpts.InputTokens)
+		}
+		if meta.Output != defaultOpts.OutputTokens {
+			t.Errorf("Output = %d, want %d", meta.Output, defaultOpts.OutputTokens)
+		}
+		if meta.ExecutedAt.IsZero() {
+			t.Error("ExecutedAt should be set")
+		}
+		if meta.Rating != nil {
+			t.Error("Rating should be nil")
+		}
+		if parsedContent != "Test response content" {
+			t.Errorf("Content = %q, want %q", parsedContent, "Test response content")
 		}
 	})
 
@@ -40,7 +85,7 @@ func TestResponseWriter(t *testing.T) {
 
 		writer := NewResponseWriter(tmpDir, "new-plan")
 
-		path, err := writer.Write("claude-3", "test.md", "content")
+		path, err := writer.Write("claude-3", "test.md", "content", defaultOpts)
 		if err != nil {
 			t.Fatalf("Write() error = %v", err)
 		}
@@ -56,7 +101,7 @@ func TestResponseWriter(t *testing.T) {
 
 		writer := NewResponseWriter(tmpDir, "plan-id")
 
-		path, err := writer.Write("gpt-4", "query_no_ext", "content")
+		path, err := writer.Write("gpt-4", "query_no_ext", "content", defaultOpts)
 		if err != nil {
 			t.Fatalf("Write() error = %v", err)
 		}
@@ -82,7 +127,7 @@ func TestResponseWriter(t *testing.T) {
 		}
 
 		for _, tc := range testCases {
-			path, err := writer.Write("gpt-4", tc.queryID, "content")
+			path, err := writer.Write("gpt-4", tc.queryID, "content", defaultOpts)
 			if err != nil {
 				t.Fatalf("Write(%q) error = %v", tc.queryID, err)
 			}
@@ -99,14 +144,62 @@ func TestResponseWriter(t *testing.T) {
 
 		writer := NewResponseWriter(tmpDir, "plan-id")
 
-		path1, _ := writer.Write("gpt-4", "query.md", "content1")
-		path2, _ := writer.Write("claude-3", "query.md", "content2")
+		path1, _ := writer.Write("gpt-4", "query.md", "content1", defaultOpts)
+		path2, _ := writer.Write("claude-3", "query.md", "content2", defaultOpts)
 
 		dir1 := filepath.Dir(path1)
 		dir2 := filepath.Dir(path2)
 
 		if dir1 == dir2 {
 			t.Errorf("Different models should create different directories: %q == %q", dir1, dir2)
+		}
+	})
+
+	t.Run("overwrites existing file including ratings", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		writer := NewResponseWriter(tmpDir, "plan-id")
+
+		// Write initial response
+		path, err := writer.Write("gpt-4", "query.md", "original content", defaultOpts)
+		if err != nil {
+			t.Fatalf("Write() error = %v", err)
+		}
+
+		// Simulate rating by modifying the file
+		meta, content, _ := response.Parse(path)
+		rating := "good"
+		ratedAt := time.Now()
+		meta.Rating = &rating
+		meta.RatedAt = &ratedAt
+		formatted, _ := response.Format(meta, content)
+		os.WriteFile(path, []byte(formatted), 0644)
+
+		// Re-execute (overwrite)
+		newOpts := WriteOptions{
+			ProviderURL:  "https://api.openai.com/v1",
+			Model:        "gpt-4-turbo",
+			Duration:     2000 * time.Millisecond,
+			InputTokens:  150,
+			OutputTokens: 250,
+		}
+		_, err = writer.Write("gpt-4", "query.md", "new content", newOpts)
+		if err != nil {
+			t.Fatalf("Write() error = %v", err)
+		}
+
+		// Verify rating was reset
+		meta, parsedContent, _ := response.Parse(path)
+		if meta.Rating != nil {
+			t.Errorf("Rating should be nil after re-execution, got %v", *meta.Rating)
+		}
+		if meta.RatedAt != nil {
+			t.Error("RatedAt should be nil after re-execution")
+		}
+		if parsedContent != "new content" {
+			t.Errorf("Content = %q, want %q", parsedContent, "new content")
+		}
+		if meta.Model != "gpt-4-turbo" {
+			t.Errorf("Model = %q, want %q", meta.Model, "gpt-4-turbo")
 		}
 	})
 }

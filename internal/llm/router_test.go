@@ -492,3 +492,51 @@ func TestRouter_NilAliases(t *testing.T) {
 	assert.Equal(t, "some-model", fullName)
 	assert.Equal(t, "test", provider)
 }
+
+func TestRouter_Chat_ReturnsMetadata(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Simulate some latency
+		time.Sleep(50 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"id":      "chatcmpl-123",
+			"model":   "gpt-4o-resolved",
+			"choices": []map[string]any{{"message": map[string]string{"content": "response"}}},
+			"usage":   map[string]int{"prompt_tokens": 100, "completion_tokens": 200},
+		})
+	}))
+	defer server.Close()
+
+	t.Setenv("TEST_KEY", "test-key")
+
+	cfg := &config.Config{
+		DefaultProvider: "test",
+		Providers: []config.Provider{
+			{
+				Name:        "test",
+				BaseURL:     server.URL,
+				APITokenEnv: "TEST_KEY",
+			},
+		},
+	}
+
+	router, err := NewRouter(cfg)
+	require.NoError(t, err)
+
+	resp, err := router.Chat(context.Background(), ChatRequest{
+		Model:       "gpt-4o",
+		UserMessage: "Hello",
+	})
+	require.NoError(t, err)
+
+	// Verify response content
+	assert.Equal(t, "response", resp.Content)
+	assert.Equal(t, "gpt-4o-resolved", resp.Model)
+	assert.Equal(t, 100, resp.PromptTokens)
+	assert.Equal(t, 200, resp.OutputTokens)
+
+	// Verify metadata fields are populated
+	assert.Equal(t, server.URL, resp.ProviderURL, "ProviderURL should match server URL")
+	assert.GreaterOrEqual(t, resp.Duration, 50*time.Millisecond, "Duration should be at least the simulated latency")
+	assert.Less(t, resp.Duration, 1*time.Second, "Duration should be reasonable")
+}

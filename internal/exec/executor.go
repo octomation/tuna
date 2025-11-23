@@ -212,8 +212,14 @@ func (e *Executor) executeOne(ctx context.Context, model, queryID string, writer
 		return nil, err
 	}
 
-	// Save response to file
-	outputPath, err := writer.Write(model, queryID, resp.Content)
+	// Save response to file with metadata
+	outputPath, err := writer.Write(model, queryID, resp.Content, WriteOptions{
+		ProviderURL:  resp.ProviderURL,
+		Model:        resp.Model,
+		Duration:     resp.Duration,
+		InputTokens:  resp.PromptTokens,
+		OutputTokens: resp.OutputTokens,
+	})
 	if err != nil {
 		return nil, err
 	}

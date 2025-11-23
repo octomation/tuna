@@ -25,8 +25,15 @@ type ModelResponse struct {
 	ModelHash string
 	FilePath  string
 	Content   string
-	Rating    Rating
-	RatedAt   time.Time
+	// Execution metadata
+	Provider   string
+	Duration   time.Duration
+	Input      int
+	Output     int
+	ExecutedAt time.Time
+	// Rating metadata
+	Rating  Rating
+	RatedAt time.Time
 }
 
 // Rating represents the user's rating of a response.
@@ -77,8 +84,19 @@ func LoadResponses(planPath string) ([]ResponseGroup, error) {
 			// returns content without front matter for rendering
 			if meta, respContent, err := ParseResponse(respPath); err == nil {
 				resp.Content = respContent // Already stripped of front matter
-				resp.Rating = meta.Rating
-				resp.RatedAt = meta.RatedAt
+				// Execution metadata
+				resp.Provider = meta.Provider
+				resp.Duration = meta.Duration
+				resp.Input = meta.Input
+				resp.Output = meta.Output
+				resp.ExecutedAt = meta.ExecutedAt
+				// Rating metadata
+				if meta.Rating != nil {
+					resp.Rating = Rating(*meta.Rating)
+				}
+				if meta.RatedAt != nil {
+					resp.RatedAt = *meta.RatedAt
+				}
 			}
 
 			group.Responses = append(group.Responses, resp)

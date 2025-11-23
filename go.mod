@@ -2,7 +2,7 @@ module go.octolab.org/toolset/tuna
 
 go 1.25.0
 
-toolchain go1.25.4
+toolchain go1.25.5
 
 require (
 	github.com/charmbracelet/bubbles v0.21.0

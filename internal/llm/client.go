@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	api "github.com/sashabaranov/go-openai"
 )
@@ -64,9 +65,11 @@ type ChatRequest struct {
 // ChatResponse holds the response from a chat completion.
 type ChatResponse struct {
 	Content      string
-	Model        string
+	Model        string        // Resolved model name from API response
+	ProviderURL  string        // Provider base URL (set by Router)
 	PromptTokens int
 	OutputTokens int
+	Duration     time.Duration // Request execution time (set by Router)
 }
 
 // Chat sends a chat completion request and returns the response.

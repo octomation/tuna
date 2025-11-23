@@ -13,6 +13,7 @@ import (
 // Router routes requests to appropriate providers based on model name.
 type Router struct {
 	providers       map[string]*Client       // name -> client
+	providerURLs    map[string]string        // name -> base URL
 	rateLimiters    map[string]*rate.Limiter // name -> rate limiter
 	aliases         map[string]string        // alias -> full model name
 	modelMapping    map[string]string        // model -> provider name
@@ -26,6 +27,7 @@ var _ ChatClient = (*Router)(nil)
 func NewRouter(cfg *config.Config) (*Router, error) {
 	r := &Router{
 		providers:       make(map[string]*Client),
+		providerURLs:    make(map[string]string),
 		rateLimiters:    make(map[string]*rate.Limiter),
 		aliases:         cfg.Aliases,
 		modelMapping:    make(map[string]string),
@@ -50,6 +52,7 @@ func NewRouter(cfg *config.Config) (*Router, error) {
 			BaseURL:  p.BaseURL,
 		})
 		r.providers[p.Name] = client
+		r.providerURLs[p.Name] = p.BaseURL
 
 		// Create rate limiter if configured
 		if p.RateLimit != "" {
@@ -87,6 +90,8 @@ func (r *Router) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, erro
 		return nil, fmt.Errorf("provider %q not found for model %q", providerName, req.Model)
 	}
 
+	providerURL := r.providerURLs[providerName]
+
 	// Wait for rate limiter if configured
 	if limiter, ok := r.rateLimiters[providerName]; ok {
 		if err := limiter.Wait(ctx); err != nil {
@@ -97,7 +102,20 @@ func (r *Router) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, erro
 	// Update request with resolved model name
 	req.Model = resolvedModel
 
-	return client.Chat(ctx, req)
+	// Time the actual API request (excluding rate limit wait)
+	start := time.Now()
+	resp, err := client.Chat(ctx, req)
+	duration := time.Since(start)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Add provider URL and timing to response
+	resp.ProviderURL = providerURL
+	resp.Duration = duration
+
+	return resp, nil
 }
 
 // resolveAlias resolves an alias to the full model name.
