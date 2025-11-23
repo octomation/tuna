@@ -1,15 +1,13 @@
 ---
 provider: https://openrouter.ai/api/v1
 model: openai/gpt-4o-mini
-duration: 4.25s
+duration: 4.687875167s
 input: 754t
-output: 164t
-executed_at: 2025-12-07T23:58:17.91438+03:00
-rating: null
-rated_at: null
+output: 169t
+executed_at: 2025-12-09T21:47:21.22439+03:00
 ---
 
-Receta de Pay de Manzana de la Abuela
+Receta de Pastel de Manzana de la Abuela
 
 Ingredientes:
 - 6 manzanas Granny Smith grandes, peladas y rebanadas
@@ -18,6 +16,6 @@ Ingredientes:
 - 1 cucharadita de canela
 - 1/4 de cucharadita de nuez moscada
 - 1 cucharada de mantequilla
-- Masa para pay (hecha en casa o comprada)
+- Masa para pie (hecha en casa o comprada)
 
-Precalentar el horno a 425°F. Mezclar las manzanas con el azúcar, la harina y las especias. Verter en la masa, colocar trocitos de mantequilla por encima, cubrir con la masa superior. Hornear de 45 a 50 minutos hasta que esté dorado.
+Precalienta el horno a 425°F (220°C). Mezcla las manzanas con el azúcar, la harina y las especias. Vierte en la masa, añade trocitos de mantequilla y cubre con la parte superior de la masa. Hornea de 45 a 50 minutos hasta que esté dorado.

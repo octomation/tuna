@@ -40,7 +40,7 @@ type metadataYAML struct {
 }
 
 // MarshalYAML implements custom YAML marshaling for human-readable format.
-func (m Metadata) MarshalYAML() (interface{}, error) {
+func (m Metadata) MarshalYAML() (any, error) {
 	aux := metadataYAML{
 		Provider:   m.Provider,
 		Model:      m.Model,
