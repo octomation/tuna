@@ -1,0 +1,1 @@
+The patient presented with acute abdominal pain in the lower right quadrant. Physical examination revealed tenderness upon palpation with positive McBurney's sign. Laboratory results showed elevated white blood cell count (15,000/μL). CT scan confirmed acute appendicitis without perforation. Surgical intervention is recommended within 24 hours.
