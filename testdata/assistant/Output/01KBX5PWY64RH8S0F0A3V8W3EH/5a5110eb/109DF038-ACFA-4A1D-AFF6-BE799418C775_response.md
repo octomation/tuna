@@ -1,5 +1,12 @@
-El punto de conexión de la API acepta solicitudes POST con una carga JSON que contiene los siguientes campos obligatorios: "user_id" (cadena de texto), "timestamp" (formato ISO 8601) y "event_type" (enumeración: "click", "view", "purchase"). Los parámetros opcionales incluyen "metadata" (objeto) y "session_id" (cadena de texto). El límite de velocidad se establece en 100 solicitudes por minuto por clave de API.
-
+---
+provider: https://openrouter.ai/api/v1
+model: anthropic/claude-haiku-4.5
+duration: 2.60s
+input: 853t
+output: 120t
+executed_at: 2025-12-07T23:59:40.256076+03:00
+rating: null
+rated_at: null
 ---
 
-**Note:** This is technical documentation, so I've preserved technical terminology in English (API, JSON, POST, ISO 8601, enum, object, etc.) as these are standard conventions in technical Spanish. The explanatory text has been fully translated to Spanish while maintaining the structure and clarity of the original.
+El endpoint de la API acepta solicitudes POST con un payload JSON que contiene los siguientes campos obligatorios: "user_id" (cadena de texto), "timestamp" (formato ISO 8601) y "event_type" (enumeración: "click", "view", "purchase"). Los parámetros opcionales incluyen "metadata" (objeto) y "session_id" (cadena de texto). El límite de velocidad está configurado en 100 solicitudes por minuto por clave de API.
