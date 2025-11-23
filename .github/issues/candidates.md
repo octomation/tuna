@@ -79,16 +79,3 @@ Export execution results to cloud storage: NextCloud, Google Drive, Dropbox. Use
 ## System prompt versioning and rollback
 
 Restore system prompt from previously executed plans. Consider: hash-based deduplication to identify unique prompt versions, plan creation prevention if identical prompt already executed, or simply allow navigation through plan history to restore earlier versions.
-
----
-
-## Response metadata
-
-Add metadata to LLM response files. Metadata should include:
-- Provider base URL
-- Resolved model name (full name, not alias)
-- Request execution time
-- Input token count
-- Output token count
-
-Format options: YAML frontmatter, separate `.meta.json` file, or embedded in response file header.

@@ -1,0 +1,725 @@
+---
+issue: null
+status: open
+type: task
+labels:
+  - "effort: easy"
+  - "impact: low"
+  - "scope: code"
+  - "type: improvement"
+assignees:
+  - kamilsk
+milestone: null
+projects: []
+relationships:
+  parent: null
+  blocked_by: []
+  blocks: []
+---
+
+# Add Response Metadata to LLM Output Files
+
+## Context
+
+Currently, response files contain only the raw LLM output with optional rating metadata added by `tuna view` in #68. For debugging, auditing, and analysis purposes, it's valuable to know more context about how each response was generated: which provider was used, the exact model name (not alias), how long the request took, and token consumption.
+
+This metadata should be automatically embedded in the response file's YAML front matter when `tuna exec` saves the response.
+
+## Specification
+
+### Response File Format
+
+Each response file should contain YAML front matter with execution and rating metadata:
+
+```markdown
+---
+provider: https://openrouter.ai/api/v1
+model: anthropic/claude-sonnet-4
+duration: 2.45s
+input: 1250t
+output: 847t
+executed_at: 2024-01-15T10:30:00Z
+rating: null
+rated_at: null
+---
+
+# Response content here...
+
+The actual LLM response follows the front matter.
+```
+
+### Metadata Fields
+
+#### Execution metadata (set by `tuna exec`)
+
+| Field         | Go Type         | YAML Format        | Description                                     |
+|---------------|-----------------|--------------------|-------------------------------------------------|
+| `provider`    | `string`        |                    | Provider base URL                               |
+| `model`       | `string`        |                    | Resolved model name (full name, not alias)      |
+| `duration`    | `time.Duration` | `Duration.String()`| Request execution time (e.g., `2.45s`)          |
+| `input`       | `int`           | `<N>t`             | Number of input (prompt) tokens (e.g., `1250t`) |
+| `output`      | `int`           | `<N>t`             | Number of output tokens (e.g., `847t`)          |
+| `executed_at` | `time.Time`     | RFC 3339           | When the request was executed                   |
+
+#### Rating metadata (set by `tuna view`)
+
+| Field      | Go Type      | YAML Format | Description                                          |
+|------------|--------------|-------------|------------------------------------------------------|
+| `rating`   | `*string`    |             | Response quality: `good`, `bad`, or `null` (unrated) |
+| `rated_at` | `*time.Time` | RFC 3339    | When the rating was set, `null` if unrated           |
+
+### Behavior Requirements
+
+1. **Automatic embedding**: Metadata is added when `tuna exec` saves a response
+2. **Full overwrite on re-execution**: `tuna exec` completely overwrites the response file including all metadata. Rating is reset because the LLM response may be different
+3. **Rating updates preserve execution metadata**: When `tuna view` adds/updates ratings, it reads existing metadata, updates only rating fields, and writes back
+4. **Backward compatibility**: Old response files without metadata should work in `tuna view`
+
+### Example with Rating
+
+After rating via `tuna view`, the file should contain both:
+
+```markdown
+---
+provider: https://openrouter.ai/api/v1
+model: anthropic/claude-sonnet-4
+duration: 2.45s
+input: 1250t
+output: 847t
+executed_at: 2024-01-15T10:30:00Z
+rating: good
+rated_at: 2024-01-15T11:00:00Z
+---
+
+# Response content...
+```
+
+## Implementation Steps
+
+### Phase 1: Core Changes
+
+#### 1. Create shared metadata types
+
+Move metadata handling to a shared package to avoid circular dependencies between `exec` and `view`.
+
+**File:** `internal/response/metadata.go`
+
+```go
+package response
+
+import (
+    "fmt"
+    "os"
+    "regexp"
+    "strings"
+    "time"
+
+    "gopkg.in/yaml.v3"
+)
+
+// Metadata holds all metadata stored in response file front matter.
+type Metadata struct {
+    // Execution metadata (set by tuna exec)
+    Provider   string        `yaml:"provider"`
+    Model      string        `yaml:"model"`
+    Duration   time.Duration `yaml:"-"`
+    Input      int           `yaml:"-"`
+    Output     int           `yaml:"-"`
+    ExecutedAt time.Time     `yaml:"executed_at"`
+
+    // Rating metadata (set by tuna view, null by default)
+    Rating  *string    `yaml:"rating"`
+    RatedAt *time.Time `yaml:"rated_at"`
+}
+
+// MarshalYAML implements custom YAML marshaling for human-readable format.
+func (m Metadata) MarshalYAML() (interface{}, error) {
+    type alias struct {
+        Provider   string     `yaml:"provider"`
+        Model      string     `yaml:"model"`
+        Duration   string     `yaml:"duration"`
+        Input      string     `yaml:"input"`
+        Output     string     `yaml:"output"`
+        ExecutedAt time.Time  `yaml:"executed_at"`
+        Rating     *string    `yaml:"rating"`
+        RatedAt    *time.Time `yaml:"rated_at"`
+    }
+    return alias{
+        Provider:   m.Provider,
+        Model:      m.Model,
+        Duration:   m.Duration.String(),
+        Input:      fmt.Sprintf("%dt", m.Input),
+        Output:     fmt.Sprintf("%dt", m.Output),
+        ExecutedAt: m.ExecutedAt,
+        Rating:     m.Rating,
+        RatedAt:    m.RatedAt,
+    }, nil
+}
+
+// UnmarshalYAML implements custom YAML unmarshaling from human-readable format.
+func (m *Metadata) UnmarshalYAML(value *yaml.Node) error {
+    type alias struct {
+        Provider   string     `yaml:"provider"`
+        Model      string     `yaml:"model"`
+        Duration   string     `yaml:"duration"`
+        Input      string     `yaml:"input"`
+        Output     string     `yaml:"output"`
+        ExecutedAt time.Time  `yaml:"executed_at"`
+        Rating     *string    `yaml:"rating"`
+        RatedAt    *time.Time `yaml:"rated_at"`
+    }
+    var a alias
+    if err := value.Decode(&a); err != nil {
+        return err
+    }
+
+    m.Provider = a.Provider
+    m.Model = a.Model
+    m.ExecutedAt = a.ExecutedAt
+    m.Rating = a.Rating
+    m.RatedAt = a.RatedAt
+
+    // Parse duration: "2450ms" -> time.Duration
+    if a.Duration != "" {
+        d, err := time.ParseDuration(a.Duration)
+        if err != nil {
+            return fmt.Errorf("invalid duration %q: %w", a.Duration, err)
+        }
+        m.Duration = d
+    }
+
+    // Parse tokens: "1250t" -> int
+    if a.Input != "" {
+        fmt.Sscanf(a.Input, "%dt", &m.Input)
+    }
+    if a.Output != "" {
+        fmt.Sscanf(a.Output, "%dt", &m.Output)
+    }
+
+    return nil
+}
+
+// frontMatterRegex matches YAML front matter at the start of a file.
+var frontMatterRegex = regexp.MustCompile(`(?s)^---\n(.+?)\n---\n`)
+
+// Parse reads a response file and returns metadata and content separately.
+func Parse(filePath string) (*Metadata, string, error) {
+    data, err := os.ReadFile(filePath)
+    if err != nil {
+        return nil, "", err
+    }
+
+    return ParseContent(string(data))
+}
+
+// ParseContent parses metadata and content from a string.
+func ParseContent(data string) (*Metadata, string, error) {
+    meta := &Metadata{}
+    content := data
+
+    if matches := frontMatterRegex.FindStringSubmatch(content); len(matches) == 2 {
+        if err := yaml.Unmarshal([]byte(matches[1]), meta); err != nil {
+            return &Metadata{}, content, nil
+        }
+        content = frontMatterRegex.ReplaceAllString(content, "")
+    }
+
+    return meta, strings.TrimLeft(content, "\n"), nil
+}
+
+// Format combines metadata and content into a response file format.
+func Format(meta *Metadata, content string) (string, error) {
+    // Skip front matter if metadata is empty
+    if meta.IsEmpty() {
+        return strings.TrimLeft(content, "\n"), nil
+    }
+
+    yamlData, err := yaml.Marshal(meta)
+    if err != nil {
+        return "", err
+    }
+
+    return "---\n" + string(yamlData) + "---\n\n" + strings.TrimLeft(content, "\n"), nil
+}
+
+// IsEmpty returns true if metadata has no meaningful values.
+func (m *Metadata) IsEmpty() bool {
+    return m.Provider == "" && m.Model == "" &&
+           m.Duration == 0 && m.Input == 0 && m.Output == 0 &&
+           m.Rating == nil
+}
+```
+
+#### 2. Extend ChatResponse with provider info
+
+**File:** `internal/llm/interface.go` (or update existing)
+
+```go
+// ChatResponse holds the response from a chat completion.
+type ChatResponse struct {
+    Content      string
+    Model        string        // Resolved model name
+    ProviderURL  string        // Provider base URL
+    PromptTokens int
+    OutputTokens int
+    Duration     time.Duration // Request execution time
+}
+```
+
+#### 3. Update Router to track provider info and timing
+
+**File:** `internal/llm/router.go`
+
+Update the `Chat` method to capture timing and provider URL:
+
+```go
+func (r *Router) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
+    resolvedModel := r.resolveAlias(req.Model)
+    providerName := r.resolveProvider(resolvedModel)
+
+    client, ok := r.providers[providerName]
+    if !ok {
+        return nil, fmt.Errorf("provider %q not found for model %q", providerName, req.Model)
+    }
+
+    providerURL := r.providerURLs[providerName]
+
+    if limiter, ok := r.rateLimiters[providerName]; ok {
+        if err := limiter.Wait(ctx); err != nil {
+            return nil, fmt.Errorf("rate limit wait cancelled: %w", err)
+        }
+    }
+
+    req.Model = resolvedModel
+
+    // Time the request
+    start := time.Now()
+    resp, err := client.Chat(ctx, req)
+    duration := time.Since(start)
+
+    if err != nil {
+        return nil, err
+    }
+
+    // Add provider URL and timing to response
+    resp.ProviderURL = providerURL
+    resp.Duration = duration
+
+    return resp, nil
+}
+```
+
+Also update `NewRouter` to store provider URLs:
+
+```go
+type Router struct {
+    providers       map[string]*Client
+    providerURLs    map[string]string  // name -> base URL (new)
+    rateLimiters    map[string]*rate.Limiter
+    aliases         map[string]string
+    modelMapping    map[string]string
+    defaultProvider string
+}
+
+func NewRouter(cfg *config.Config) (*Router, error) {
+    r := &Router{
+        providers:       make(map[string]*Client),
+        providerURLs:    make(map[string]string),  // new
+        // ... rest unchanged
+    }
+
+    for _, p := range cfg.Providers {
+        // ... existing code ...
+        r.providerURLs[p.Name] = p.BaseURL  // new
+        // ... rest unchanged
+    }
+
+    return r, nil
+}
+```
+
+#### 4. Update ResponseWriter to include metadata
+
+**File:** `internal/exec/writer.go`
+
+```go
+package exec
+
+import (
+    "fmt"
+    "os"
+    "path/filepath"
+    "strings"
+    "time"
+
+    "go.octolab.org/toolset/tuna/internal/response"
+)
+
+// ResponseWriter handles saving LLM responses to files.
+type ResponseWriter struct {
+    baseDir string
+}
+
+// NewResponseWriter creates a writer for the given plan output directory.
+func NewResponseWriter(assistantDir, planID string) *ResponseWriter {
+    return &ResponseWriter{
+        baseDir: filepath.Join(assistantDir, "Output", planID),
+    }
+}
+
+// WriteOptions contains metadata to embed in the response file.
+type WriteOptions struct {
+    ProviderURL  string
+    Model        string
+    Duration     time.Duration
+    InputTokens  int
+    OutputTokens int
+}
+
+// Write saves a response to the appropriate file with metadata.
+// Note: This completely overwrites any existing file, including previous ratings.
+func (w *ResponseWriter) Write(model, queryID, content string, opts WriteOptions) (string, error) {
+    modelDir := filepath.Join(w.baseDir, ModelHash(model))
+
+    if err := os.MkdirAll(modelDir, 0755); err != nil {
+        return "", fmt.Errorf("failed to create output directory: %w", err)
+    }
+
+    baseName := strings.TrimSuffix(queryID, filepath.Ext(queryID))
+    responseFile := baseName + "_response.md"
+    responsePath := filepath.Join(modelDir, responseFile)
+
+    // Build metadata with all fields (rating fields nil = null in YAML)
+    meta := &response.Metadata{
+        Provider:   opts.ProviderURL,
+        Model:      opts.Model,
+        Duration:   opts.Duration,
+        Input:      opts.InputTokens,
+        Output:     opts.OutputTokens,
+        ExecutedAt: time.Now(),
+        Rating:     nil, // null - will be set by tuna view
+        RatedAt:    nil, // null - will be set by tuna view
+    }
+
+    // Format content with metadata
+    formatted, err := response.Format(meta, content)
+    if err != nil {
+        return "", fmt.Errorf("failed to format response: %w", err)
+    }
+
+    if err := os.WriteFile(responsePath, []byte(formatted), 0644); err != nil {
+        return "", fmt.Errorf("failed to write response file: %w", err)
+    }
+
+    return responsePath, nil
+}
+```
+
+#### 5. Update executor to pass metadata
+
+**File:** `internal/exec/executor.go`
+
+Update `executeOne` to pass metadata to the writer:
+
+```go
+func (e *Executor) executeOne(ctx context.Context, model, queryID string, writer *ResponseWriter) (*Result, error) {
+    content, err := os.ReadFile(filepath.Join(e.assistantDir, "Input", queryID))
+    if err != nil {
+        return nil, fmt.Errorf("failed to read query %s: %w", queryID, err)
+    }
+
+    resp, err := e.llmClient.Chat(ctx, llm.ChatRequest{
+        Model:        model,
+        SystemPrompt: e.plan.Assistant.SystemPrompt,
+        UserMessage:  string(content),
+        Temperature:  e.plan.Assistant.LLM.Temperature,
+        MaxTokens:    e.plan.Assistant.LLM.MaxTokens,
+    })
+    if err != nil {
+        return nil, err
+    }
+
+    outputPath, err := writer.Write(model, queryID, resp.Content, WriteOptions{
+        ProviderURL:  resp.ProviderURL,
+        Model:        resp.Model,
+        Duration:     resp.Duration,
+        InputTokens:  resp.PromptTokens,
+        OutputTokens: resp.OutputTokens,
+    })
+    if err != nil {
+        return nil, err
+    }
+
+    return &Result{
+        Response:     resp.Content,
+        Model:        resp.Model,
+        QueryID:      queryID,
+        OutputPath:   outputPath,
+        PromptTokens: resp.PromptTokens,
+        OutputTokens: resp.OutputTokens,
+    }, nil
+}
+```
+
+### Phase 2: Update View Package
+
+#### 6. Update view package to use shared metadata
+
+**File:** `internal/view/metadata.go`
+
+Refactor to use the shared `response` package:
+
+```go
+package view
+
+import (
+    "os"
+    "time"
+
+    "go.octolab.org/toolset/tuna/internal/response"
+)
+
+type Rating string
+
+const (
+    RatingNone Rating = ""
+    RatingGood Rating = "good"
+    RatingBad  Rating = "bad"
+)
+
+// ParseResponse reads a response file and returns metadata and content.
+func ParseResponse(filePath string) (*response.Metadata, string, error) {
+    return response.Parse(filePath)
+}
+
+// SaveRating updates the rating in a response file, preserving other metadata.
+func SaveRating(filePath string, rating Rating) error {
+    meta, content, err := response.Parse(filePath)
+    if err != nil {
+        return err
+    }
+
+    if rating == RatingNone {
+        meta.Rating = nil
+        meta.RatedAt = nil
+    } else {
+        r := string(rating)
+        t := time.Now()
+        meta.Rating = &r
+        meta.RatedAt = &t
+    }
+
+    formatted, err := response.Format(meta, content)
+    if err != nil {
+        return err
+    }
+
+    return os.WriteFile(filePath, []byte(formatted), 0644)
+}
+```
+
+#### 7. Update view loader to expose metadata
+
+**File:** `internal/view/loader.go`
+
+Add metadata fields to `ModelResponse`:
+
+```go
+type ModelResponse struct {
+    Model      string
+    ModelHash  string
+    FilePath   string
+    Content    string
+    // Execution metadata
+    Provider   string
+    Duration   time.Duration
+    Input      int
+    Output     int
+    ExecutedAt time.Time
+    // Rating metadata (nil = unrated)
+    Rating     *string
+    RatedAt    *time.Time
+}
+```
+
+### Phase 3: Tests
+
+#### 8. Add unit tests
+
+**File:** `internal/response/metadata_test.go`
+
+```go
+package response
+
+import (
+    "testing"
+    "time"
+)
+
+// ptr is a helper to create string pointers in tests
+func ptr(s string) *string { return &s }
+
+func TestParseContent(t *testing.T) {
+    tests := []struct {
+        name    string
+        input   string
+        wantMeta *Metadata
+        wantContent string
+    }{
+        {
+            name:  "no front matter",
+            input: "# Hello\n\nWorld",
+            wantMeta: &Metadata{},
+            wantContent: "# Hello\n\nWorld",
+        },
+        {
+            name: "with execution metadata",
+            input: `---
+provider: https://openrouter.ai/api/v1
+model: claude-sonnet-4
+duration: 2.45s
+input: 100t
+output: 200t
+---
+
+# Response`,
+            wantMeta: &Metadata{
+                Provider: "https://openrouter.ai/api/v1",
+                Model:    "claude-sonnet-4",
+                Duration: 2450 * time.Millisecond,
+                Input:    100,
+                Output:   200,
+            },
+            wantContent: "# Response",
+        },
+        {
+            name: "with rating and execution metadata",
+            input: `---
+provider: https://openrouter.ai/api/v1
+model: claude-sonnet-4
+rating: good
+---
+
+Content`,
+            wantMeta: &Metadata{
+                Provider: "https://openrouter.ai/api/v1",
+                Model:    "claude-sonnet-4",
+                Rating:   ptr("good"),
+            },
+            wantContent: "Content",
+        },
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            meta, content, err := ParseContent(tt.input)
+            if err != nil {
+                t.Fatalf("unexpected error: %v", err)
+            }
+            if meta.Provider != tt.wantMeta.Provider {
+                t.Errorf("provider = %q, want %q", meta.Provider, tt.wantMeta.Provider)
+            }
+            if meta.Model != tt.wantMeta.Model {
+                t.Errorf("model = %q, want %q", meta.Model, tt.wantMeta.Model)
+            }
+            if content != tt.wantContent {
+                t.Errorf("content = %q, want %q", content, tt.wantContent)
+            }
+        })
+    }
+}
+
+func TestFormat(t *testing.T) {
+    meta := &Metadata{
+        Provider: "https://openrouter.ai/api/v1",
+        Model:    "claude-sonnet-4",
+        Duration: 2450 * time.Millisecond,
+        Input:    100,
+        Output:   200,
+    }
+
+    result, err := Format(meta, "# Response")
+    if err != nil {
+        t.Fatalf("unexpected error: %v", err)
+    }
+
+    // Re-parse to verify round-trip
+    parsed, content, err := ParseContent(result)
+    if err != nil {
+        t.Fatalf("failed to parse formatted output: %v", err)
+    }
+
+    if parsed.Provider != meta.Provider {
+        t.Errorf("provider mismatch: %q != %q", parsed.Provider, meta.Provider)
+    }
+    if parsed.Duration != meta.Duration {
+        t.Errorf("duration mismatch: %v != %v", parsed.Duration, meta.Duration)
+    }
+    if parsed.Input != meta.Input {
+        t.Errorf("input mismatch: %d != %d", parsed.Input, meta.Input)
+    }
+    if content != "# Response" {
+        t.Errorf("content mismatch: %q", content)
+    }
+}
+
+func TestIsEmpty(t *testing.T) {
+    empty := &Metadata{}
+    if !empty.IsEmpty() {
+        t.Error("expected empty metadata to return true")
+    }
+
+    withProvider := &Metadata{Provider: "https://example.com"}
+    if withProvider.IsEmpty() {
+        t.Error("metadata with provider should not be empty")
+    }
+
+    withRating := &Metadata{Rating: ptr("good")}
+    if withRating.IsEmpty() {
+        t.Error("metadata with rating should not be empty")
+    }
+
+    withDuration := &Metadata{Duration: 100 * time.Millisecond}
+    if withDuration.IsEmpty() {
+        t.Error("metadata with duration should not be empty")
+    }
+}
+```
+
+**File:** `internal/exec/writer_test.go`
+
+Add tests for metadata embedding (extend existing tests).
+
+## File Changes
+
+| File                                 | Action |
+|--------------------------------------|--------|
+| `internal/response/metadata.go`      | Create |
+| `internal/response/metadata_test.go` | Create |
+| `internal/llm/router.go`             | Modify |
+| `internal/llm/client.go`             | Modify |
+| `internal/exec/writer.go`            | Modify |
+| `internal/exec/writer_test.go`       | Modify |
+| `internal/exec/executor.go`          | Modify |
+| `internal/view/metadata.go`          | Modify |
+| `internal/view/loader.go`            | Modify |
+
+## Acceptance Criteria
+
+### Core Functionality
+- [ ] Response files contain YAML front matter with execution metadata
+- [ ] Metadata includes: provider, model, duration, input, output, executed_at
+- [ ] Re-executing completely overwrites the file (including resetting any ratings)
+- [ ] Old response files (without metadata) still work in `tuna view`
+
+### Integration
+- [ ] `tuna view` displays responses correctly (metadata not rendered)
+- [ ] Rating changes via `tuna view` preserve execution metadata
+- [ ] Token counts match API response values
+- [ ] Duration reflects actual request time (excluding rate limit wait)
+
+### Tests
+- [ ] Unit tests for metadata parsing and formatting
+- [ ] Unit tests for `IsEmpty` function
+- [ ] Unit tests for writer with metadata
+- [ ] Verify re-execution resets ratings
