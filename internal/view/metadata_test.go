@@ -20,8 +20,8 @@ func TestParseResponse_NoFrontMatter(t *testing.T) {
 
 	meta, parsed, err := ParseResponse(filePath)
 	require.NoError(t, err)
-	assert.Nil(t, meta.Rating)
-	assert.Nil(t, meta.RatedAt)
+	assert.Empty(t, meta.Rating)
+	assert.True(t, meta.RatedAt.IsZero())
 	assert.Equal(t, content, parsed)
 }
 
@@ -40,9 +40,8 @@ This is a response with front matter.`
 
 	meta, parsed, err := ParseResponse(filePath)
 	require.NoError(t, err)
-	require.NotNil(t, meta.Rating)
-	assert.Equal(t, "good", *meta.Rating)
-	require.NotNil(t, meta.RatedAt)
+	assert.Equal(t, "good", meta.Rating)
+	assert.False(t, meta.RatedAt.IsZero())
 	assert.Equal(t, 2024, meta.RatedAt.Year())
 	assert.Equal(t, time.January, meta.RatedAt.Month())
 	assert.Equal(t, 15, meta.RatedAt.Day())
@@ -78,8 +77,7 @@ rated_at: 2024-01-15T11:00:00Z
 	assert.Equal(t, 2450*time.Millisecond, meta.Duration)
 	assert.Equal(t, 100, meta.Input)
 	assert.Equal(t, 200, meta.Output)
-	require.NotNil(t, meta.Rating)
-	assert.Equal(t, "good", *meta.Rating)
+	assert.Equal(t, "good", meta.Rating)
 	assert.Contains(t, parsed, "# Response content")
 }
 
@@ -95,8 +93,7 @@ Bad response.`
 
 	meta, parsed, err := ParseResponse(filePath)
 	require.NoError(t, err)
-	require.NotNil(t, meta.Rating)
-	assert.Equal(t, "bad", *meta.Rating)
+	assert.Equal(t, "bad", meta.Rating)
 	assert.Contains(t, parsed, "Bad response.")
 }
 
@@ -143,8 +140,7 @@ rated_at: 2024-01-15T10:30:00Z
 	// Read back and verify
 	meta, parsed, err := ParseResponse(filePath)
 	require.NoError(t, err)
-	require.NotNil(t, meta.Rating)
-	assert.Equal(t, "bad", *meta.Rating)
+	assert.Equal(t, "bad", meta.Rating)
 	assert.Contains(t, parsed, "# Response")
 }
 
@@ -177,9 +173,8 @@ rated_at: null
 	assert.Equal(t, 2450*time.Millisecond, meta.Duration)
 	assert.Equal(t, 100, meta.Input)
 	assert.Equal(t, 200, meta.Output)
-	require.NotNil(t, meta.Rating)
-	assert.Equal(t, "good", *meta.Rating)
-	require.NotNil(t, meta.RatedAt)
+	assert.Equal(t, "good", meta.Rating)
+	assert.False(t, meta.RatedAt.IsZero())
 	assert.Contains(t, parsed, "# Response")
 }
 
@@ -209,8 +204,8 @@ rated_at: 2024-01-15T11:00:00Z
 
 	assert.Equal(t, "https://openrouter.ai/api/v1", meta.Provider)
 	assert.Equal(t, "claude-sonnet-4", meta.Model)
-	assert.Nil(t, meta.Rating)
-	assert.Nil(t, meta.RatedAt)
+	assert.Empty(t, meta.Rating)
+	assert.True(t, meta.RatedAt.IsZero())
 	assert.Contains(t, parsed, "# Response")
 }
 

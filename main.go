@@ -18,10 +18,10 @@ import (
 const unknown = "unknown"
 
 var (
-	commit  = unknown
-	date    = unknown
-	version = "dev"
-	exit    = os.Exit
+	commit            = unknown
+	date              = unknown
+	version           = "dev"
+	exit              = os.Exit
 	stderr  io.Writer = os.Stderr
 	stdout  io.Writer = os.Stdout
 )

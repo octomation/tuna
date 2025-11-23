@@ -10,8 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func ptr[T any](v T) *T { return &v }
-
 func TestParseContent(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -56,8 +54,8 @@ rated_at: 2024-01-15T11:00:00Z
 
 Content`,
 			wantMeta: &Metadata{
-				Rating:  ptr("good"),
-				RatedAt: ptr(time.Date(2024, 1, 15, 11, 0, 0, 0, time.UTC)),
+				Rating:  "good",
+				RatedAt: time.Date(2024, 1, 15, 11, 0, 0, 0, time.UTC),
 			},
 			wantContent: "Content",
 		},
@@ -82,8 +80,8 @@ rated_at: 2024-01-15T11:00:00Z
 				Input:      500,
 				Output:     300,
 				ExecutedAt: time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
-				Rating:     ptr("good"),
-				RatedAt:    ptr(time.Date(2024, 1, 15, 11, 0, 0, 0, time.UTC)),
+				Rating:     "good",
+				RatedAt:    time.Date(2024, 1, 15, 11, 0, 0, 0, time.UTC),
 			},
 			wantContent: "# Full response",
 		},
@@ -100,8 +98,6 @@ Response`,
 			wantMeta: &Metadata{
 				Provider: "https://api.openai.com/v1",
 				Model:    "gpt-4o",
-				Rating:   nil,
-				RatedAt:  nil,
 			},
 			wantContent: "Response",
 		},
@@ -195,8 +191,8 @@ func TestFormat_WithRating(t *testing.T) {
 		Input:      100,
 		Output:     200,
 		ExecutedAt: time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
-		Rating:     ptr("good"),
-		RatedAt:    ptr(time.Date(2024, 1, 15, 11, 0, 0, 0, time.UTC)),
+		Rating:     "good",
+		RatedAt:    time.Date(2024, 1, 15, 11, 0, 0, 0, time.UTC),
 	}
 
 	result, err := Format(meta, "Content")
@@ -207,7 +203,7 @@ func TestFormat_WithRating(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, meta.Rating, parsed.Rating)
-	assert.NotNil(t, parsed.RatedAt)
+	assert.False(t, parsed.RatedAt.IsZero())
 	assert.Equal(t, "Content", content)
 }
 
@@ -271,7 +267,7 @@ func TestIsEmpty(t *testing.T) {
 		},
 		{
 			name:     "with rating",
-			meta:     &Metadata{Rating: ptr("good")},
+			meta:     &Metadata{Rating: "good"},
 			expected: false,
 		},
 	}
@@ -296,7 +292,7 @@ func TestHasExecutionMetadata(t *testing.T) {
 		},
 		{
 			name:     "rating only - no execution metadata",
-			meta:     &Metadata{Rating: ptr("good")},
+			meta:     &Metadata{Rating: "good"},
 			expected: false,
 		},
 		{
@@ -323,26 +319,6 @@ func TestHasExecutionMetadata(t *testing.T) {
 	}
 }
 
-func TestFormatDuration(t *testing.T) {
-	tests := []struct {
-		duration time.Duration
-		expected string
-	}{
-		{100 * time.Millisecond, "100ms"},
-		{999 * time.Millisecond, "999ms"},
-		{1000 * time.Millisecond, "1.00s"},
-		{1500 * time.Millisecond, "1.50s"},
-		{2450 * time.Millisecond, "2.45s"},
-		{10000 * time.Millisecond, "10.00s"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.expected, func(t *testing.T) {
-			result := formatDuration(tt.duration)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
 
 func TestParseTokens(t *testing.T) {
 	tests := []struct {

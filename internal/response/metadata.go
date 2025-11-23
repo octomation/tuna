@@ -17,48 +17,44 @@ type Metadata struct {
 	// Execution metadata (set by tuna exec)
 	Provider   string        `yaml:"provider,omitempty"`
 	Model      string        `yaml:"model,omitempty"`
-	Duration   time.Duration `yaml:"-"`
+	Duration   time.Duration `yaml:"duration,omitempty"`
 	Input      int           `yaml:"-"`
 	Output     int           `yaml:"-"`
 	ExecutedAt time.Time     `yaml:"executed_at,omitempty"`
 
 	// Rating metadata (set by tuna view)
-	Rating  *string    `yaml:"rating"`
-	RatedAt *time.Time `yaml:"rated_at"`
+	Rating  string    `yaml:"rating,omitempty"`
+	RatedAt time.Time `yaml:"rated_at,omitempty"`
 }
 
 // metadataYAML is used for custom YAML marshaling/unmarshaling.
 type metadataYAML struct {
-	Provider   string     `yaml:"provider,omitempty"`
-	Model      string     `yaml:"model,omitempty"`
-	Duration   string     `yaml:"duration,omitempty"`
-	Input      string     `yaml:"input,omitempty"`
-	Output     string     `yaml:"output,omitempty"`
-	ExecutedAt *time.Time `yaml:"executed_at,omitempty"`
-	Rating     *string    `yaml:"rating"`
-	RatedAt    *time.Time `yaml:"rated_at"`
+	Provider   string        `yaml:"provider,omitempty"`
+	Model      string        `yaml:"model,omitempty"`
+	Duration   time.Duration `yaml:"duration,omitempty"`
+	Input      string        `yaml:"input,omitempty"`
+	Output     string        `yaml:"output,omitempty"`
+	ExecutedAt time.Time     `yaml:"executed_at,omitempty"`
+	Rating     string        `yaml:"rating,omitempty"`
+	RatedAt    time.Time     `yaml:"rated_at,omitempty"`
 }
 
 // MarshalYAML implements custom YAML marshaling for human-readable format.
 func (m Metadata) MarshalYAML() (interface{}, error) {
 	aux := metadataYAML{
-		Provider: m.Provider,
-		Model:    m.Model,
-		Rating:   m.Rating,
-		RatedAt:  m.RatedAt,
+		Provider:   m.Provider,
+		Model:      m.Model,
+		Duration:   m.Duration,
+		ExecutedAt: m.ExecutedAt,
+		Rating:     m.Rating,
+		RatedAt:    m.RatedAt,
 	}
 
-	if m.Duration > 0 {
-		aux.Duration = formatDuration(m.Duration)
-	}
 	if m.Input > 0 {
 		aux.Input = fmt.Sprintf("%dt", m.Input)
 	}
 	if m.Output > 0 {
 		aux.Output = fmt.Sprintf("%dt", m.Output)
-	}
-	if !m.ExecutedAt.IsZero() {
-		aux.ExecutedAt = &m.ExecutedAt
 	}
 
 	return aux, nil
@@ -73,21 +69,10 @@ func (m *Metadata) UnmarshalYAML(value *yaml.Node) error {
 
 	m.Provider = aux.Provider
 	m.Model = aux.Model
+	m.Duration = aux.Duration
+	m.ExecutedAt = aux.ExecutedAt
 	m.Rating = aux.Rating
 	m.RatedAt = aux.RatedAt
-
-	if aux.ExecutedAt != nil {
-		m.ExecutedAt = *aux.ExecutedAt
-	}
-
-	// Parse duration: "2.45s" or "2450ms" -> time.Duration
-	if aux.Duration != "" {
-		d, err := time.ParseDuration(aux.Duration)
-		if err != nil {
-			return fmt.Errorf("invalid duration %q: %w", aux.Duration, err)
-		}
-		m.Duration = d
-	}
 
 	// Parse tokens: "1250t" -> int
 	m.Input = parseTokens(aux.Input)
@@ -101,19 +86,6 @@ func parseTokens(s string) int {
 	s = strings.TrimSuffix(s, "t")
 	n, _ := strconv.Atoi(s)
 	return n
-}
-
-// formatDuration formats duration in a human-readable way.
-// Rounds to milliseconds for cleaner output.
-func formatDuration(d time.Duration) string {
-	// Round to milliseconds for cleaner display
-	ms := d.Milliseconds()
-	if ms < 1000 {
-		return fmt.Sprintf("%dms", ms)
-	}
-	// For seconds, show up to 2 decimal places
-	secs := float64(ms) / 1000
-	return fmt.Sprintf("%.2fs", secs)
 }
 
 // frontMatterRegex matches YAML front matter at the start of a file.
@@ -166,7 +138,7 @@ func (m *Metadata) IsEmpty() bool {
 		m.Input == 0 &&
 		m.Output == 0 &&
 		m.ExecutedAt.IsZero() &&
-		m.Rating == nil
+		m.Rating == ""
 }
 
 // HasExecutionMetadata returns true if execution metadata is present.

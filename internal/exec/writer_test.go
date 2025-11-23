@@ -72,8 +72,8 @@ func TestResponseWriter(t *testing.T) {
 		if meta.ExecutedAt.IsZero() {
 			t.Error("ExecutedAt should be set")
 		}
-		if meta.Rating != nil {
-			t.Error("Rating should be nil")
+		if meta.Rating != "" {
+			t.Error("Rating should be empty")
 		}
 		if parsedContent != "Test response content" {
 			t.Errorf("Content = %q, want %q", parsedContent, "Test response content")
@@ -167,10 +167,8 @@ func TestResponseWriter(t *testing.T) {
 
 		// Simulate rating by modifying the file
 		meta, content, _ := response.Parse(path)
-		rating := "good"
-		ratedAt := time.Now()
-		meta.Rating = &rating
-		meta.RatedAt = &ratedAt
+		meta.Rating = "good"
+		meta.RatedAt = time.Now()
 		formatted, _ := response.Format(meta, content)
 		os.WriteFile(path, []byte(formatted), 0644)
 
@@ -189,11 +187,11 @@ func TestResponseWriter(t *testing.T) {
 
 		// Verify rating was reset
 		meta, parsedContent, _ := response.Parse(path)
-		if meta.Rating != nil {
-			t.Errorf("Rating should be nil after re-execution, got %v", *meta.Rating)
+		if meta.Rating != "" {
+			t.Errorf("Rating should be empty after re-execution, got %v", meta.Rating)
 		}
-		if meta.RatedAt != nil {
-			t.Error("RatedAt should be nil after re-execution")
+		if !meta.RatedAt.IsZero() {
+			t.Error("RatedAt should be zero after re-execution")
 		}
 		if parsedContent != "new content" {
 			t.Errorf("Content = %q, want %q", parsedContent, "new content")

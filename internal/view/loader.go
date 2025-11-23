@@ -91,12 +91,10 @@ func LoadResponses(planPath string) ([]ResponseGroup, error) {
 				resp.Output = meta.Output
 				resp.ExecutedAt = meta.ExecutedAt
 				// Rating metadata
-				if meta.Rating != nil {
-					resp.Rating = Rating(*meta.Rating)
+				if meta.Rating != "" {
+					resp.Rating = Rating(meta.Rating)
 				}
-				if meta.RatedAt != nil {
-					resp.RatedAt = *meta.RatedAt
-				}
+				resp.RatedAt = meta.RatedAt
 			}
 
 			group.Responses = append(group.Responses, resp)

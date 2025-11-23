@@ -47,7 +47,7 @@ func (w *ResponseWriter) Write(model, queryID, content string, opts WriteOptions
 	responseFile := baseName + "_response.md"
 	responsePath := filepath.Join(modelDir, responseFile)
 
-	// Build metadata (rating fields nil = null in YAML)
+	// Build metadata (rating fields empty = omitted in YAML)
 	meta := &response.Metadata{
 		Provider:   opts.ProviderURL,
 		Model:      opts.Model,
@@ -55,8 +55,7 @@ func (w *ResponseWriter) Write(model, queryID, content string, opts WriteOptions
 		Input:      opts.InputTokens,
 		Output:     opts.OutputTokens,
 		ExecutedAt: time.Now(),
-		Rating:     nil, // Will be set by tuna view
-		RatedAt:    nil, // Will be set by tuna view
+		// Rating and RatedAt will be set by tuna view
 	}
 
 	// Format content with metadata

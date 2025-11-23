@@ -29,13 +29,11 @@ func SaveRating(filePath string, rating Rating) error {
 
 	// Update rating fields
 	if rating == RatingNone {
-		meta.Rating = nil
-		meta.RatedAt = nil
+		meta.Rating = ""
+		meta.RatedAt = time.Time{}
 	} else {
-		r := string(rating)
-		t := time.Now()
-		meta.Rating = &r
-		meta.RatedAt = &t
+		meta.Rating = string(rating)
+		meta.RatedAt = time.Now()
 	}
 
 	// Format with updated metadata
