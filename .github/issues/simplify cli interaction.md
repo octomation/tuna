@@ -1,0 +1,401 @@
+---
+issue: null
+status: open
+type: feature
+labels:
+  - "effort: medium"
+  - "impact: high"
+  - "scope: code"
+  - "type: feature"
+assignees:
+  - kamilsk
+milestone: null
+projects: []
+relationships:
+  parent: null
+  blocked_by: []
+  blocks: []
+---
+
+# Simplify CLI Interaction
+
+## Context
+
+Currently, `tuna` commands require explicit arguments that could be discovered automatically from the filesystem:
+
+- `tuna plan <AssistantID>` — requires assistant ID, but valid assistants can be found in the current directory
+- `tuna exec <PlanID>` — requires plan ID, but plans can be discovered in assistant Output directories
+- `tuna view <PlanID>` — same as exec
+
+This creates unnecessary friction when working with a single assistant or when the user doesn't remember exact plan IDs (ULIDs are not human-friendly).
+
+## Solution
+
+Make positional arguments optional. When omitted, show an interactive picker (TUI list) with discovered options. The implementation is split into three phases, from simplest to most complex.
+
+---
+
+## Phase 1: Interactive Assistant Picker for `plan` Command
+
+**Goal:** Allow `tuna plan` to run without arguments.
+
+### Behavior
+
+```
+$ tuna plan
+? Select assistant:
+  > MyAssistant
+    AnotherAssistant
+    TestBot
+```
+
+When only one assistant exists, select it automatically (with an info message).
+
+### Implementation Steps
+
+#### 1. Create assistant discovery function
+
+**File:** `internal/assistant/discover.go`
+
+```go
+package assistant
+
+// Discover finds valid assistant directories in baseDir.
+// A valid assistant has:
+//   - Input/ subdirectory
+//   - System prompt/ subdirectory with at least one .txt or .md file
+//
+// Returns directory names (not full paths), sorted alphabetically.
+func Discover(baseDir string) ([]string, error)
+
+// IsValidAssistant checks if dir contains a valid assistant structure.
+func IsValidAssistant(dir string) bool
+```
+
+#### 2. Create TUI picker component
+
+**File:** `internal/tui/picker/picker.go`
+
+```go
+package picker
+
+import (
+    "github.com/charmbracelet/bubbles/list"
+    tea "github.com/charmbracelet/bubbletea"
+)
+
+// Item represents a selectable item in the picker.
+type Item struct {
+    ID          string // unique identifier (returned on selection)
+    Title       string // main display text
+    Description string // secondary text (optional)
+}
+
+// Config configures the picker behavior.
+type Config struct {
+    Title string
+    Items []Item
+}
+
+// Run displays the interactive picker and returns the selected item ID.
+// Returns empty string if user cancels (Esc/Ctrl+C).
+// Returns error only for TUI failures.
+func Run(cfg Config) (string, error)
+```
+
+#### 3. Update plan command
+
+**File:** `internal/command/plan.go`
+
+- Change `Args: cobra.ExactArgs(1)` → `Args: cobra.MaximumNArgs(1)`
+- Add selection logic:
+
+```go
+RunE: func(cmd *cobra.Command, args []string) error {
+    var assistantID string
+
+    if len(args) > 0 {
+        assistantID = args[0]
+    } else {
+        // Discover available assistants
+        assistants, err := assistant.Discover(cwd)
+        if err != nil {
+            return err
+        }
+
+        switch len(assistants) {
+        case 0:
+            return fmt.Errorf("no assistants found\n\nRun 'tuna init <AssistantID>' to create one")
+        case 1:
+            assistantID = assistants[0]
+            cmd.Printf("Using assistant: %s\n\n", assistantID)
+        default:
+            if !tui.IsInteractive() {
+                // Print available options and exit
+                return fmt.Errorf("assistant ID required in non-interactive mode\n\nAvailable:\n%s",
+                    formatList(assistants))
+            }
+            // Show picker
+            selected, err := picker.Run(picker.Config{
+                Title: "Select assistant",
+                Items: toPickerItems(assistants),
+            })
+            if err != nil {
+                return err
+            }
+            if selected == "" {
+                return nil // user cancelled
+            }
+            assistantID = selected
+        }
+    }
+    // ... rest of the command
+}
+```
+
+### File Changes
+
+| File                              | Action |
+|-----------------------------------|--------|
+| `internal/assistant/discover.go`  | Create |
+| `internal/tui/picker/picker.go`   | Create |
+| `internal/command/plan.go`        | Modify |
+
+---
+
+## Phase 2: Interactive Picker for `exec` Command
+
+**Goal:** Allow `tuna exec` to run without arguments.
+
+### Behavior
+
+```
+$ tuna exec
+? Select assistant:
+  > MyAssistant
+    AnotherAssistant
+
+? Select plan:
+  > 01JF8K2M3N... (2024-12-09 14:30, 3 models)
+    01JF8J1K2L... (2024-12-09 12:15, 2 models)
+    01JF7H9G8F... (2024-12-08 18:45, 1 model)
+```
+
+Plans are sorted newest-first. ULID provides lexicographic sorting by timestamp.
+
+### Implementation Steps
+
+#### 1. Create plan discovery function
+
+**File:** `internal/plan/discover.go`
+
+```go
+package plan
+
+import "time"
+
+// PlanInfo contains metadata about a discovered plan.
+type PlanInfo struct {
+    ID          string    // ULID
+    AssistantID string    // parent assistant directory name
+    Path        string    // full path to plan.toml
+    CreatedAt   time.Time // extracted from ULID timestamp
+    Models      []string  // list of models in the plan
+    QueryCount  int       // number of queries
+}
+
+// Discover finds all plans in the given assistant directory.
+// Returns plans sorted by creation time (newest first).
+func Discover(assistantDir string) ([]PlanInfo, error)
+
+// DiscoverAll finds all plans across all assistants in baseDir.
+// Returns plans sorted by creation time (newest first).
+func DiscoverAll(baseDir string) ([]PlanInfo, error)
+```
+
+#### 2. Update exec command
+
+**File:** `internal/command/exec.go`
+
+- Change `Args: cobra.ExactArgs(1)` → `Args: cobra.MaximumNArgs(1)`
+- Add two-step selection logic (assistant → plan)
+- Reuse picker component from Phase 1
+
+```go
+RunE: func(cmd *cobra.Command, args []string) error {
+    var planID string
+
+    if len(args) > 0 {
+        planID = args[0]
+    } else {
+        // Step 1: Select assistant
+        assistants, err := assistant.Discover(cwd)
+        // ... (same logic as plan command)
+
+        // Step 2: Select plan within assistant
+        assistantDir := filepath.Join(cwd, selectedAssistant)
+        plans, err := plan.Discover(assistantDir)
+        if err != nil {
+            return err
+        }
+
+        switch len(plans) {
+        case 0:
+            return fmt.Errorf("no plans found for %s\n\nRun 'tuna plan %s' to create one",
+                selectedAssistant, selectedAssistant)
+        case 1:
+            planID = plans[0].ID
+            cmd.Printf("Using plan: %s\n\n", planID)
+        default:
+            if !tui.IsInteractive() {
+                return fmt.Errorf("plan ID required in non-interactive mode\n\nAvailable:\n%s",
+                    formatPlanList(plans))
+            }
+            // Show picker with plan details
+            selected, err := picker.Run(picker.Config{
+                Title: "Select plan",
+                Items: plansToPickerItems(plans),
+            })
+            // ...
+        }
+    }
+    // ... rest of the command
+}
+```
+
+### File Changes
+
+| File                           | Action |
+|--------------------------------|--------|
+| `internal/plan/discover.go`    | Create |
+| `internal/command/exec.go`     | Modify |
+
+---
+
+## Phase 3: Interactive Picker for `view` Command
+
+**Goal:** Allow `tuna view` to run without arguments.
+
+### Behavior
+
+Same as `exec` — two-step picker (assistant → plan).
+
+### Implementation Steps
+
+#### 1. Update view command
+
+**File:** `internal/command/view.go`
+
+- Change `Args: cobra.ExactArgs(1)` → `Args: cobra.MaximumNArgs(1)`
+- Reuse the same selection logic as `exec` command
+
+Consider extracting shared selection logic into a helper:
+
+```go
+// internal/command/helpers.go
+
+// SelectPlan handles interactive plan selection.
+// Returns planID and assistantDir, or error.
+func SelectPlan(cmd *cobra.Command, cwd string, args []string) (planID, assistantDir string, err error)
+```
+
+### File Changes
+
+| File                          | Action |
+|-------------------------------|--------|
+| `internal/command/view.go`    | Modify |
+| `internal/command/helpers.go` | Create |
+
+---
+
+## Technical Notes
+
+### ULID Timestamp Extraction
+
+ULIDs encode creation timestamp in first 10 characters:
+
+```go
+import "github.com/oklog/ulid/v2"
+
+id, err := ulid.Parse("01JF8K2M3N4P5Q6R7S8T9UVWXY")
+createdAt := ulid.Time(id.Time()) // time.Time
+```
+
+### Picker Component Design
+
+Use `bubbles/list` with custom item delegate for clean UI:
+
+```go
+type itemDelegate struct{}
+
+func (d itemDelegate) Height() int                             { return 1 }
+func (d itemDelegate) Spacing() int                            { return 0 }
+func (d itemDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
+func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list.Item) {
+    item := listItem.(Item)
+    cursor := "  "
+    if index == m.Index() {
+        cursor = "> "
+    }
+    fmt.Fprintf(w, "%s%s", cursor, item.Title)
+    if item.Description != "" {
+        fmt.Fprintf(w, " %s", lipgloss.NewStyle().Faint(true).Render(item.Description))
+    }
+}
+```
+
+### Non-Interactive Fallback
+
+When `tui.IsInteractive()` returns false, print available options and exit with error:
+
+```
+Error: assistant ID required in non-interactive mode
+
+Available assistants:
+  1. MyAssistant
+  2. AnotherAssistant
+
+Usage: tuna plan <AssistantID>
+```
+
+### Assistant Validation
+
+A directory is a valid assistant if:
+1. Contains `Input/` subdirectory
+2. Contains `System prompt/` subdirectory with at least one `.txt` or `.md` file
+
+---
+
+## File Changes Summary
+
+| File                              | Action | Phase |
+|-----------------------------------|--------|-------|
+| `internal/assistant/discover.go`  | Create | 1     |
+| `internal/tui/picker/picker.go`   | Create | 1     |
+| `internal/command/plan.go`        | Modify | 1     |
+| `internal/plan/discover.go`       | Create | 2     |
+| `internal/command/exec.go`        | Modify | 2     |
+| `internal/command/view.go`        | Modify | 3     |
+| `internal/command/helpers.go`     | Create | 3     |
+
+---
+
+## Acceptance Criteria
+
+### Phase 1
+- [ ] `tuna plan` without args shows assistant picker
+- [ ] Auto-selects when only one assistant exists
+- [ ] Non-interactive mode shows helpful error with available options
+- [ ] Explicit argument still works: `tuna plan MyAssistant`
+
+### Phase 2
+- [ ] `tuna exec` without args shows assistant picker, then plan picker
+- [ ] Plans sorted newest-first (by ULID timestamp)
+- [ ] Plan picker shows useful info (date, model count)
+- [ ] Non-interactive mode shows helpful error
+- [ ] Explicit argument still works: `tuna exec 01JF8K2M3N...`
+
+### Phase 3
+- [ ] `tuna view` without args shows assistant picker, then plan picker
+- [ ] Same behavior as `exec` command
+- [ ] Shared selection logic extracted to helper

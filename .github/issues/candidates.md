@@ -20,30 +20,9 @@ Create an interactive tutorial for new users covering configuration setup, model
 
 ---
 
-## Interactive response viewer
-
-TUI for browsing and comparing LLM responses. Navigate by query (Input) and see all model responses side-by-side for each query. Helps evaluate and compare model outputs across the entire assistant.
-
----
-
 ## Response annotation for prompt refinement
 
 Extends the response viewer with ability to mark/tag responses (e.g., "good", "needs improvement", "off-topic"). Annotations help identify patterns and guide system prompt iteration.
-
----
-
-## Interactive assistant picker for plan command
-
-Allow `tuna plan` to run without arguments. Shows interactive picker with valid assistant folders (those matching expected structure: Input/, system prompt files).
-
----
-
-## ULID for plans and interactive exec picker
-
-Replace UUID with ULID for plan IDs. ULID is lexicographically sortable by timestamp. Enables `tuna exec` without arguments: discover plan folders and show interactive picker sorted from newest to oldest.
-
-Useful resources:
-- https://youtu.be/otW7nLd8P04
 
 ---
 
