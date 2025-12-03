@@ -1,0 +1,730 @@
+---
+id: 54
+database_id: 3663063449
+node_id: I_kwDOPyI7hs7aVemZ
+status: closed
+title: "feature: implement `tuna exec` command"
+labels: ["type: feature","scope: code","impact: high","effort: medium"]
+url: https://github.com/octomation/tuna/issues/54
+created_at: 2025-11-25T13:22:56Z
+updated_at: 2025-12-07T15:55:39Z
+---
+
+# feature: implement `tuna exec` command
+
+# Implement `tuna exec` Command
+
+## Context
+
+The stub command exists in `internal/command/exec.go` (from #51). Now we need to implement actual functionality: execute a plan by reading `plan.toml`, making LLM requests via OpenAI-compatible API, and saving responses.
+
+Implementation is split into two phases:
+- **Phase 1 (MVP)**: First query + first model, output to stdout
+- **Phase 2**: All queries × all models, save to files
+
+## Specification
+
+### Usage
+
+```bash
+tuna exec <PlanID> [flags]
+  --parallel, -p    # Number of parallel requests (default: 1)
+  --dry-run         # Show what would be executed without API calls
+  --continue        # Continue from last checkpoint if interrupted
+```
+
+### Algorithm
+
+1. Find `plan.toml` by PlanID using glob: `*/Output/<PlanID>/plan.toml`
+2. Parse TOML, validate `plan_id` matches argument
+3. Read query files from `<AssistantID>/Input/`
+4. Send requests to LLM (system prompt + user query)
+5. Save responses to `<AssistantID>/Output/<plan_id>/<model_hash>/`
+
+### Configuration
+
+Environment variables (vendor-neutral naming):
+- `LLM_API_TOKEN` — API token (required)
+- `LLM_BASE_URL` — Base URL for OpenAI-compatible API (required)
+
+### Output Structure (Phase 2)
+
+```
+{AssistantID}/Output/{plan_id}/{model_hash}/
+├── {query_id}_response.md
+└── ...
+```
+
+Where `{model_hash}` is first 8 chars of SHA-256(model_name).
+
+### Flags (MVP Status)
+
+| Flag             | Status                                  |
+|------------------|-----------------------------------------|
+| `--dry-run`      | Implemented                             |
+| `--parallel, -p` | Stub: warning, uses default (1)         |
+| `--continue`     | Stub: warning only                      |
+
+### Error Handling
+
+- Plan not found → error with suggestion to run `tuna plan`
+- Invalid TOML / plan_id mismatch → error
+- Missing env vars → error with setup instructions
+- Empty models/queries → error
+- Query file not found → error with path
+- API failure → error with details
+
+## Implementation Steps
+
+### Phase 1: MVP
+
+#### 1. Add dependency
+
+```bash
+go get github.com/sashabaranov/go-openai
+```
+
+#### 2. Create plan loader
+
+**File:** `internal/plan/loader.go`
+
+```go
+package plan
+
+import (
+    "fmt"
+    "os"
+    "path/filepath"
+
+    "github.com/pelletier/go-toml/v2"
+)
+
+func Load(baseDir, planID string) (*Plan, string, error) {
+    pattern := filepath.Join(baseDir, "*", "Output", planID, "plan.toml")
+    matches, err := filepath.Glob(pattern)
+    if err != nil {
+        return nil, "", fmt.Errorf("failed to search for plan: %w", err)
+    }
+
+    if len(matches) == 0 {
+        return nil, "", fmt.Errorf("plan not found: %s\nRun 'tuna plan <AssistantID>' first", planID)
+    }
+    if len(matches) > 1 {
+        return nil, "", fmt.Errorf("multiple plans found with ID %s", planID)
+    }
+
+    data, err := os.ReadFile(matches[0])
+    if err != nil {
+        return nil, "", fmt.Errorf("failed to read plan: %w", err)
+    }
+
+    var plan Plan
+    if err := toml.Unmarshal(data, &plan); err != nil {
+        return nil, "", fmt.Errorf("failed to parse plan.toml: %w", err)
+    }
+
+    if plan.PlanID != planID {
+        return nil, "", fmt.Errorf("plan_id mismatch: expected %s, got %s", planID, plan.PlanID)
+    }
+
+    return &plan, matches[0], nil
+}
+
+func AssistantDir(planPath string) string {
+    return filepath.Dir(filepath.Dir(filepath.Dir(planPath)))
+}
+```
+
+#### 3. Create LLM client
+
+**File:** `internal/llm/client.go`
+
+```go
+package llm
+
+import (
+    "context"
+    "fmt"
+    "os"
+
+    openai "github.com/sashabaranov/go-openai"
+)
+
+const (
+    EnvAPIToken = "LLM_API_TOKEN"
+    EnvBaseURL  = "LLM_BASE_URL"
+)
+
+type Config struct {
+    APIToken string
+    BaseURL  string
+}
+
+func ConfigFromEnv() (*Config, error) {
+    token := os.Getenv(EnvAPIToken)
+    if token == "" {
+        return nil, fmt.Errorf("missing %s environment variable", EnvAPIToken)
+    }
+    baseURL := os.Getenv(EnvBaseURL)
+    if baseURL == "" {
+        return nil, fmt.Errorf("missing %s environment variable", EnvBaseURL)
+    }
+    return &Config{APIToken: token, BaseURL: baseURL}, nil
+}
+
+type Client struct {
+    client *openai.Client
+}
+
+func NewClient(cfg *Config) *Client {
+    config := openai.DefaultConfig(cfg.APIToken)
+    config.BaseURL = cfg.BaseURL
+    return &Client{client: openai.NewClientWithConfig(config)}
+}
+
+type ChatRequest struct {
+    Model, SystemPrompt, UserMessage string
+    Temperature                      float64
+    MaxTokens                        int
+}
+
+type ChatResponse struct {
+    Content                  string
+    Model                    string
+    PromptTokens, OutputTokens int
+}
+
+func (c *Client) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
+    resp, err := c.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+        Model: req.Model,
+        Messages: []openai.ChatCompletionMessage{
+            {Role: openai.ChatMessageRoleSystem, Content: req.SystemPrompt},
+            {Role: openai.ChatMessageRoleUser, Content: req.UserMessage},
+        },
+        Temperature: float32(req.Temperature),
+        MaxTokens:   req.MaxTokens,
+    })
+    if err != nil {
+        return nil, fmt.Errorf("chat completion failed: %w", err)
+    }
+    if len(resp.Choices) == 0 {
+        return nil, fmt.Errorf("no response choices returned")
+    }
+    return &ChatResponse{
+        Content:      resp.Choices[0].Message.Content,
+        Model:        resp.Model,
+        PromptTokens: resp.Usage.PromptTokens,
+        OutputTokens: resp.Usage.CompletionTokens,
+    }, nil
+}
+```
+
+#### 4. Create executor
+
+**File:** `internal/exec/executor.go`
+
+```go
+package exec
+
+import (
+    "context"
+    "fmt"
+    "os"
+    "path/filepath"
+
+    "go.octolab.org/toolset/tuna/internal/llm"
+    "go.octolab.org/toolset/tuna/internal/plan"
+)
+
+type Options struct {
+    DryRun, Continue bool
+    Parallel         int
+}
+
+type Result struct {
+    Response, Model, QueryID string
+    PromptTokens, OutputTokens int
+}
+
+type Executor struct {
+    plan         *plan.Plan
+    assistantDir string
+    llmClient    *llm.Client
+    options      Options
+}
+
+func New(p *plan.Plan, assistantDir string, client *llm.Client, opts Options) *Executor {
+    return &Executor{plan: p, assistantDir: assistantDir, llmClient: client, options: opts}
+}
+
+func (e *Executor) DryRun() string {
+    out := fmt.Sprintf("Plan ID:      %s\nAssistant ID: %s\n\n", e.plan.PlanID, e.plan.AssistantID)
+
+    out += "Models:\n"
+    for i, m := range e.plan.Assistant.LLM.Models {
+        marker := "  "
+        if i == 0 { marker = "* " }
+        out += fmt.Sprintf("  %s%s\n", marker, m)
+    }
+
+    out += "\nQueries:\n"
+    for i, q := range e.plan.Queries {
+        marker := "  "
+        if i == 0 { marker = "* " }
+        out += fmt.Sprintf("  %s%s\n", marker, q.ID)
+    }
+
+    out += fmt.Sprintf("\nLLM Parameters:\n  Temperature: %.1f\n  Max tokens:  %d\n",
+        e.plan.Assistant.LLM.Temperature, e.plan.Assistant.LLM.MaxTokens)
+    out += "\n(MVP: only first model and first query will be executed)\n"
+    return out
+}
+
+func (e *Executor) Execute(ctx context.Context) (*Result, error) {
+    if len(e.plan.Assistant.LLM.Models) == 0 {
+        return nil, fmt.Errorf("no models specified in plan")
+    }
+    if len(e.plan.Queries) == 0 {
+        return nil, fmt.Errorf("no queries specified in plan")
+    }
+
+    model, queryID := e.plan.Assistant.LLM.Models[0], e.plan.Queries[0].ID
+
+    content, err := os.ReadFile(filepath.Join(e.assistantDir, "Input", queryID))
+    if err != nil {
+        return nil, fmt.Errorf("failed to read query %s: %w", queryID, err)
+    }
+
+    resp, err := e.llmClient.Chat(ctx, llm.ChatRequest{
+        Model: model, SystemPrompt: e.plan.Assistant.SystemPrompt,
+        UserMessage: string(content),
+        Temperature: e.plan.Assistant.LLM.Temperature,
+        MaxTokens:   e.plan.Assistant.LLM.MaxTokens,
+    })
+    if err != nil {
+        return nil, err
+    }
+
+    return &Result{
+        Response: resp.Content, Model: resp.Model, QueryID: queryID,
+        PromptTokens: resp.PromptTokens, OutputTokens: resp.OutputTokens,
+    }, nil
+}
+```
+
+#### 5. Update exec command
+
+**File:** `internal/command/exec.go`
+
+```go
+package command
+
+import (
+    "context"
+    "fmt"
+    "os"
+
+    "github.com/spf13/cobra"
+    "go.octolab.org/toolset/tuna/internal/exec"
+    "go.octolab.org/toolset/tuna/internal/llm"
+    "go.octolab.org/toolset/tuna/internal/plan"
+)
+
+func Exec() *cobra.Command {
+    var parallel int
+    var dryRun, continueOp bool
+
+    cmd := cobra.Command{
+        Use:   "exec <PlanID>",
+        Short: "Execute a plan",
+        Long: `Execute runs the specified plan, sending queries to configured models.
+
+Environment variables required:
+  LLM_API_TOKEN  API token for authentication
+  LLM_BASE_URL   Base URL for OpenAI-compatible API`,
+        Args: cobra.ExactArgs(1),
+        RunE: func(cmd *cobra.Command, args []string) error {
+            if parallel > 1 {
+                cmd.PrintErrln("Warning: --parallel not yet implemented")
+            }
+            if continueOp {
+                cmd.PrintErrln("Warning: --continue not yet implemented")
+            }
+
+            cwd, _ := os.Getwd()
+            p, planPath, err := plan.Load(cwd, args[0])
+            if err != nil {
+                return err
+            }
+
+            if dryRun {
+                cmd.Print(exec.New(p, plan.AssistantDir(planPath), nil, exec.Options{DryRun: true}).DryRun())
+                return nil
+            }
+
+            llmCfg, err := llm.ConfigFromEnv()
+            if err != nil {
+                return err
+            }
+
+            result, err := exec.New(p, plan.AssistantDir(planPath), llm.NewClient(llmCfg), exec.Options{}).Execute(context.Background())
+            if err != nil {
+                return err
+            }
+
+            cmd.Printf("Query: %s\nModel: %s\nTokens: %d prompt + %d output\n\n--- Response ---\n%s\n",
+                result.QueryID, result.Model, result.PromptTokens, result.OutputTokens, result.Response)
+            return nil
+        },
+    }
+
+    cmd.Flags().IntVarP(&parallel, "parallel", "p", 1, "Number of parallel requests")
+    cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show execution plan without API calls")
+    cmd.Flags().BoolVar(&continueOp, "continue", false, "Continue from checkpoint")
+    return &cmd
+}
+```
+
+#### 6. Add unit tests
+
+**File:** `internal/plan/loader_test.go`
+
+```go
+package plan
+
+import (
+    "os"
+    "path/filepath"
+    "testing"
+)
+
+func TestLoad(t *testing.T) {
+    t.Run("loads valid plan", func(t *testing.T) {
+        tmpDir := t.TempDir()
+        planDir := filepath.Join(tmpDir, "assistant", "Output", "test-id")
+        os.MkdirAll(planDir, 0755)
+        os.WriteFile(filepath.Join(planDir, "plan.toml"), []byte(`
+plan_id = "test-id"
+assistant_id = "assistant"
+[assistant]
+system_prompt = "test"
+[assistant.llm]
+models = ["gpt-4"]
+max_tokens = 1000
+temperature = 0.5
+[[query]]
+id = "q.md"
+`), 0644)
+
+        p, path, err := Load(tmpDir, "test-id")
+        if err != nil {
+            t.Fatalf("error = %v", err)
+        }
+        if p.PlanID != "test-id" || path == "" {
+            t.Error("unexpected result")
+        }
+    })
+
+    t.Run("error for missing plan", func(t *testing.T) {
+        if _, _, err := Load(t.TempDir(), "missing"); err == nil {
+            t.Error("expected error")
+        }
+    })
+}
+```
+
+**File:** `internal/llm/client_test.go`
+
+```go
+package llm
+
+import (
+    "os"
+    "testing"
+)
+
+func TestConfigFromEnv(t *testing.T) {
+    t.Run("valid config", func(t *testing.T) {
+        os.Setenv(EnvAPIToken, "token")
+        os.Setenv(EnvBaseURL, "https://api.example.com")
+        defer os.Unsetenv(EnvAPIToken)
+        defer os.Unsetenv(EnvBaseURL)
+
+        cfg, err := ConfigFromEnv()
+        if err != nil || cfg.APIToken != "token" {
+            t.Errorf("unexpected result: %v, %v", cfg, err)
+        }
+    })
+
+    t.Run("missing token", func(t *testing.T) {
+        os.Unsetenv(EnvAPIToken)
+        if _, err := ConfigFromEnv(); err == nil {
+            t.Error("expected error")
+        }
+    })
+}
+```
+
+**File:** `internal/exec/executor_test.go`
+
+```go
+package exec
+
+import (
+    "strings"
+    "testing"
+
+    "go.octolab.org/toolset/tuna/internal/plan"
+)
+
+func TestDryRun(t *testing.T) {
+    p := &plan.Plan{
+        PlanID: "test", AssistantID: "assistant",
+        Assistant: plan.Assistant{
+            LLM: plan.LLM{Models: []string{"gpt-4"}, MaxTokens: 4096, Temperature: 0.7},
+        },
+        Queries: []plan.Query{{ID: "q.md"}},
+    }
+
+    out := New(p, "/tmp", nil, Options{DryRun: true}).DryRun()
+    for _, s := range []string{"test", "assistant", "gpt-4", "q.md"} {
+        if !strings.Contains(out, s) {
+            t.Errorf("missing %q", s)
+        }
+    }
+}
+
+func TestExecuteValidation(t *testing.T) {
+    p := &plan.Plan{Assistant: plan.Assistant{LLM: plan.LLM{Models: []string{}}}}
+    if _, err := New(p, "/tmp", nil, Options{}).Execute(nil); err == nil {
+        t.Error("expected error for empty models")
+    }
+}
+```
+
+### Phase 2: Full Execution
+
+#### 1. Add model hash utility
+
+**File:** `internal/exec/hash.go`
+
+```go
+package exec
+
+import (
+    "crypto/sha256"
+    "encoding/hex"
+)
+
+func ModelHash(model string) string {
+    hash := sha256.Sum256([]byte(model))
+    return hex.EncodeToString(hash[:])[:8]
+}
+```
+
+#### 2. Add response writer
+
+**File:** `internal/exec/writer.go`
+
+```go
+package exec
+
+import (
+    "fmt"
+    "os"
+    "path/filepath"
+    "strings"
+)
+
+type ResponseWriter struct {
+    baseDir string
+}
+
+func NewResponseWriter(assistantDir, planID string) *ResponseWriter {
+    return &ResponseWriter{baseDir: filepath.Join(assistantDir, "Output", planID)}
+}
+
+func (w *ResponseWriter) Write(model, queryID, content string) (string, error) {
+    modelDir := filepath.Join(w.baseDir, ModelHash(model))
+    if err := os.MkdirAll(modelDir, 0755); err != nil {
+        return "", fmt.Errorf("failed to create directory: %w", err)
+    }
+
+    baseName := strings.TrimSuffix(queryID, filepath.Ext(queryID))
+    path := filepath.Join(modelDir, baseName+"_response.md")
+
+    if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+        return "", fmt.Errorf("failed to write response: %w", err)
+    }
+    return path, nil
+}
+```
+
+#### 3. Update executor for multiple queries/models
+
+**File:** `internal/exec/executor.go` (additions)
+
+```go
+type ExecutionSummary struct {
+    Results      []Result
+    TotalQueries int
+    TotalModels  int
+    TotalTokens  struct{ Prompt, Output int }
+    Errors       []error
+}
+
+func (e *Executor) ExecuteAll(ctx context.Context) (*ExecutionSummary, error) {
+    if len(e.plan.Assistant.LLM.Models) == 0 {
+        return nil, fmt.Errorf("no models specified")
+    }
+    if len(e.plan.Queries) == 0 {
+        return nil, fmt.Errorf("no queries specified")
+    }
+
+    writer := NewResponseWriter(e.assistantDir, e.plan.PlanID)
+    summary := &ExecutionSummary{
+        TotalQueries: len(e.plan.Queries),
+        TotalModels:  len(e.plan.Assistant.LLM.Models),
+    }
+
+    for _, model := range e.plan.Assistant.LLM.Models {
+        for _, query := range e.plan.Queries {
+            result, err := e.executeOne(ctx, model, query.ID, writer)
+            if err != nil {
+                summary.Errors = append(summary.Errors, fmt.Errorf("%s/%s: %w", model, query.ID, err))
+                continue
+            }
+            summary.Results = append(summary.Results, *result)
+            summary.TotalTokens.Prompt += result.PromptTokens
+            summary.TotalTokens.Output += result.OutputTokens
+        }
+    }
+    return summary, nil
+}
+
+func (e *Executor) executeOne(ctx context.Context, model, queryID string, writer *ResponseWriter) (*Result, error) {
+    content, err := os.ReadFile(filepath.Join(e.assistantDir, "Input", queryID))
+    if err != nil {
+        return nil, err
+    }
+
+    resp, err := e.llmClient.Chat(ctx, llm.ChatRequest{
+        Model: model, SystemPrompt: e.plan.Assistant.SystemPrompt,
+        UserMessage: string(content),
+        Temperature: e.plan.Assistant.LLM.Temperature,
+        MaxTokens:   e.plan.Assistant.LLM.MaxTokens,
+    })
+    if err != nil {
+        return nil, err
+    }
+
+    outputPath, err := writer.Write(model, queryID, resp.Content)
+    if err != nil {
+        return nil, err
+    }
+
+    return &Result{
+        Response: resp.Content, Model: resp.Model, QueryID: queryID,
+        OutputPath: outputPath, PromptTokens: resp.PromptTokens, OutputTokens: resp.OutputTokens,
+    }, nil
+}
+```
+
+#### 4. Add tests for Phase 2
+
+**File:** `internal/exec/hash_test.go`
+
+```go
+package exec
+
+import "testing"
+
+func TestModelHash(t *testing.T) {
+    h1 := ModelHash("gpt-4")
+    if len(h1) != 8 {
+        t.Errorf("expected 8 chars, got %d", len(h1))
+    }
+    if h1 != ModelHash("gpt-4") {
+        t.Error("hash not deterministic")
+    }
+    if h1 == ModelHash("gpt-3.5") {
+        t.Error("hash collision")
+    }
+}
+```
+
+**File:** `internal/exec/writer_test.go`
+
+```go
+package exec
+
+import (
+    "os"
+    "path/filepath"
+    "testing"
+)
+
+func TestResponseWriter(t *testing.T) {
+    tmpDir := t.TempDir()
+    writer := NewResponseWriter(tmpDir, "plan-id")
+
+    path, err := writer.Write("gpt-4", "query.md", "response")
+    if err != nil {
+        t.Fatalf("error = %v", err)
+    }
+
+    expected := filepath.Join(tmpDir, "Output", "plan-id", ModelHash("gpt-4"), "query_response.md")
+    if path != expected {
+        t.Errorf("path = %q, want %q", path, expected)
+    }
+
+    content, _ := os.ReadFile(path)
+    if string(content) != "response" {
+        t.Errorf("content = %q", content)
+    }
+}
+```
+
+## File Changes
+
+### Phase 1 (MVP)
+
+| File                             | Action |
+|----------------------------------|--------|
+| `go.mod`                         | Modify |
+| `go.sum`                         | Modify |
+| `internal/plan/loader.go`        | Create |
+| `internal/plan/loader_test.go`   | Create |
+| `internal/llm/client.go`         | Create |
+| `internal/llm/client_test.go`    | Create |
+| `internal/exec/executor.go`      | Create |
+| `internal/exec/executor_test.go` | Create |
+| `internal/command/exec.go`       | Modify |
+
+### Phase 2
+
+| File                           | Action |
+|--------------------------------|--------|
+| `internal/exec/hash.go`        | Create |
+| `internal/exec/hash_test.go`   | Create |
+| `internal/exec/writer.go`      | Create |
+| `internal/exec/writer_test.go` | Create |
+| `internal/exec/executor.go`    | Modify |
+| `internal/command/exec.go`     | Modify |
+
+## Acceptance Criteria
+
+### Phase 1 (MVP)
+- [x] Plan located by PlanID via glob pattern
+- [x] Plan parsed and validated (plan_id match)
+- [x] LLM config from `LLM_API_TOKEN`, `LLM_BASE_URL`
+- [x] First query + first model executed
+- [x] `--dry-run` shows plan without API calls
+- [x] `--parallel` and `--continue` print warnings
+- [x] Clear errors for missing plan/env vars
+
+### Phase 2
+- [x] All models × all queries executed
+- [x] Responses saved to `Output/<plan_id>/<model_hash>/<query>_response.md`
+- [x] Summary shows totals and errors
+- [x] Execution continues on individual errors

@@ -1,0 +1,552 @@
+---
+id: 53
+database_id: 3663062038
+node_id: I_kwDOPyI7hs7aVeQW
+status: closed
+title: "feature: implement `tuna plan` command"
+labels: ["type: feature","scope: code","impact: medium","effort: easy"]
+url: https://github.com/octomation/tuna/issues/53
+created_at: 2025-11-25T13:22:34Z
+updated_at: 2025-12-07T15:45:27Z
+---
+
+# feature: implement `tuna plan` command
+
+# Implement `tuna plan` Command
+
+## Context
+
+The stub command exists in `internal/command/plan.go` (from #51). Now we need to implement actual functionality: create a `plan.toml` configuration file for an execution session by compiling system prompt fragments and collecting input queries.
+
+## Specification
+
+### Usage
+
+```bash
+tuna plan <AssistantID> [flags]
+  --models, -m      # Comma-separated list of models (default: claude-sonnet-4-20250514)
+  --temperature     # Temperature setting (default: 0.7)
+  --max-tokens      # Max tokens for response (default: 4096)
+```
+
+### Output
+
+File `<AssistantID>/Output/<plan_id>/plan.toml`:
+
+```toml
+plan_id = "<UUID v4>"
+assistant_id = "<AssistantID>"
+
+[assistant]
+system_prompt = """
+--- fragment_001.md ---
+<content>
+
+--- fragment_002.md ---
+<content>
+"""
+
+[assistant.llm]
+models = ["model1", "model2"]
+max_tokens = 4096
+temperature = 0.7
+
+[[query]]
+id = "query_001.md"
+
+[[query]]
+id = "query_002.txt"
+```
+
+### Algorithm
+
+1. Validate `<AssistantID>/` directory exists
+2. Generate UUID v4 as `plan_id`
+3. Compile system prompt: read `System prompt/` files, sort alphabetically, concatenate with `--- <filename> ---` delimiters
+4. Collect queries: list `Input/` files as `[[query]]` entries
+5. Write `plan.toml` to `Output/<plan_id>/`
+6. Print summary: path, plan ID, models count, queries count
+
+### File Filtering
+
+For both `Input/` and `System prompt/`:
+- Include: `.txt`, `.md` files
+- Ignore: hidden files (`.gitkeep`, `.DS_Store`), subdirectories
+
+### Error Handling
+
+- Missing assistant directory → error
+- Empty `System prompt/` → error (required)
+- Empty `Input/` → warning, continue
+
+## Implementation Steps
+
+### 1. Add UUID dependency
+
+```bash
+go get github.com/google/uuid
+```
+
+### 2. Create file utilities
+
+**File:** `internal/assistant/files.go`
+
+```go
+package assistant
+
+import (
+    "os"
+    "path/filepath"
+    "sort"
+    "strings"
+)
+
+type FileFilter struct {
+    Extensions   []string
+    IgnoreHidden bool
+}
+
+func DefaultFilter() FileFilter {
+    return FileFilter{
+        Extensions:   []string{".txt", ".md"},
+        IgnoreHidden: true,
+    }
+}
+
+func ListFiles(dir string, filter FileFilter) ([]string, error) {
+    entries, err := os.ReadDir(dir)
+    if err != nil {
+        return nil, err
+    }
+
+    var files []string
+    for _, entry := range entries {
+        if entry.IsDir() {
+            continue
+        }
+        name := entry.Name()
+        if filter.IgnoreHidden && strings.HasPrefix(name, ".") {
+            continue
+        }
+        ext := strings.ToLower(filepath.Ext(name))
+        for _, allowed := range filter.Extensions {
+            if ext == allowed {
+                files = append(files, name)
+                break
+            }
+        }
+    }
+
+    sort.Strings(files)
+    return files, nil
+}
+```
+
+### 3. Create system prompt compiler
+
+**File:** `internal/assistant/prompt.go`
+
+```go
+package assistant
+
+import (
+    "fmt"
+    "os"
+    "path/filepath"
+    "strings"
+)
+
+func CompileSystemPrompt(assistantDir string) (string, error) {
+    promptDir := filepath.Join(assistantDir, "System prompt")
+
+    files, err := ListFiles(promptDir, DefaultFilter())
+    if err != nil {
+        if os.IsNotExist(err) {
+            return "", fmt.Errorf("system prompt directory not found: %s", promptDir)
+        }
+        return "", fmt.Errorf("failed to read system prompt directory: %w", err)
+    }
+
+    if len(files) == 0 {
+        return "", fmt.Errorf("system prompt directory is empty: %s", promptDir)
+    }
+
+    var builder strings.Builder
+    for i, filename := range files {
+        if i > 0 {
+            builder.WriteString("\n")
+        }
+        builder.WriteString(fmt.Sprintf("--- %s ---\n", filename))
+
+        content, err := os.ReadFile(filepath.Join(promptDir, filename))
+        if err != nil {
+            return "", fmt.Errorf("failed to read %s: %w", filename, err)
+        }
+        builder.Write(content)
+        if len(content) > 0 && content[len(content)-1] != '\n' {
+            builder.WriteString("\n")
+        }
+    }
+
+    return builder.String(), nil
+}
+```
+
+### 4. Create plan generator
+
+**File:** `internal/plan/plan.go`
+
+```go
+package plan
+
+import (
+    "fmt"
+    "os"
+    "path/filepath"
+    "strings"
+
+    "github.com/google/uuid"
+    "github.com/pelletier/go-toml/v2"
+    "go.octolab.org/toolset/tuna/internal/assistant"
+)
+
+type Config struct {
+    Models      []string
+    Temperature float64
+    MaxTokens   int
+}
+
+type Plan struct {
+    PlanID      string    `toml:"plan_id"`
+    AssistantID string    `toml:"assistant_id"`
+    Assistant   Assistant `toml:"assistant"`
+    Queries     []Query   `toml:"query"`
+}
+
+type Assistant struct {
+    SystemPrompt string `toml:"system_prompt,multiline"`
+    LLM          LLM    `toml:"llm"`
+}
+
+type LLM struct {
+    Models      []string `toml:"models"`
+    MaxTokens   int      `toml:"max_tokens"`
+    Temperature float64  `toml:"temperature"`
+}
+
+type Query struct {
+    ID string `toml:"id"`
+}
+
+type Result struct {
+    PlanPath     string
+    PlanID       string
+    ModelsCount  int
+    QueriesCount int
+}
+
+func Generate(baseDir, assistantID string, cfg Config) (*Result, error) {
+    assistantDir := filepath.Join(baseDir, assistantID)
+
+    if _, err := os.Stat(assistantDir); os.IsNotExist(err) {
+        return nil, fmt.Errorf("assistant directory not found: %s", assistantDir)
+    }
+
+    planID := uuid.New().String()
+
+    systemPrompt, err := assistant.CompileSystemPrompt(assistantDir)
+    if err != nil {
+        return nil, err
+    }
+
+    inputDir := filepath.Join(assistantDir, "Input")
+    queryFiles, err := assistant.ListFiles(inputDir, assistant.DefaultFilter())
+    if err != nil && !os.IsNotExist(err) {
+        return nil, fmt.Errorf("failed to read input directory: %w", err)
+    }
+
+    queries := make([]Query, len(queryFiles))
+    for i, filename := range queryFiles {
+        queries[i] = Query{ID: filename}
+    }
+
+    plan := Plan{
+        PlanID:      planID,
+        AssistantID: assistantID,
+        Assistant: Assistant{
+            SystemPrompt: systemPrompt,
+            LLM:          LLM{Models: cfg.Models, MaxTokens: cfg.MaxTokens, Temperature: cfg.Temperature},
+        },
+        Queries: queries,
+    }
+
+    outputDir := filepath.Join(assistantDir, "Output", planID)
+    if err := os.MkdirAll(outputDir, 0755); err != nil {
+        return nil, fmt.Errorf("failed to create output directory: %w", err)
+    }
+
+    planPath := filepath.Join(outputDir, "plan.toml")
+    data, err := toml.Marshal(plan)
+    if err != nil {
+        return nil, fmt.Errorf("failed to marshal plan: %w", err)
+    }
+
+    if err := os.WriteFile(planPath, data, 0644); err != nil {
+        return nil, fmt.Errorf("failed to write plan.toml: %w", err)
+    }
+
+    return &Result{
+        PlanPath:     planPath,
+        PlanID:       planID,
+        ModelsCount:  len(cfg.Models),
+        QueriesCount: len(queries),
+    }, nil
+}
+
+func ParseModels(modelsStr string) []string {
+    if modelsStr == "" {
+        return nil
+    }
+    parts := strings.Split(modelsStr, ",")
+    models := make([]string, 0, len(parts))
+    for _, p := range parts {
+        if trimmed := strings.TrimSpace(p); trimmed != "" {
+            models = append(models, trimmed)
+        }
+    }
+    return models
+}
+```
+
+### 5. Update plan command
+
+**File:** `internal/command/plan.go`
+
+```go
+package command
+
+import (
+    "fmt"
+    "os"
+
+    "github.com/spf13/cobra"
+    "go.octolab.org/toolset/tuna/internal/plan"
+)
+
+func Plan() *cobra.Command {
+    var (
+        models      string
+        temperature float64
+        maxTokens   int
+    )
+
+    command := cobra.Command{
+        Use:   "plan <AssistantID>",
+        Short: "Create an execution plan",
+        Long: `Plan creates a TOML configuration file that defines an execution session.
+
+The plan includes:
+  - Plan ID (UUID v4)
+  - Compiled system prompt (from System prompt/ directory)
+  - List of input queries (from Input/ directory)
+  - Target models and execution parameters
+
+Output: <AssistantID>/Output/<plan_id>/plan.toml`,
+        Args: cobra.ExactArgs(1),
+        RunE: func(cmd *cobra.Command, args []string) error {
+            cwd, err := os.Getwd()
+            if err != nil {
+                return fmt.Errorf("failed to get working directory: %w", err)
+            }
+
+            cfg := plan.Config{
+                Models:      plan.ParseModels(models),
+                Temperature: temperature,
+                MaxTokens:   maxTokens,
+            }
+
+            result, err := plan.Generate(cwd, args[0], cfg)
+            if err != nil {
+                return err
+            }
+
+            cmd.Printf("Plan created: %s\n", result.PlanPath)
+            cmd.Printf("  Plan ID: %s\n", result.PlanID)
+            cmd.Printf("  Models:  %d\n", result.ModelsCount)
+            cmd.Printf("  Queries: %d\n", result.QueriesCount)
+
+            if result.QueriesCount == 0 {
+                cmd.Println("\nWarning: No input queries found.")
+            }
+
+            return nil
+        },
+    }
+
+    command.Flags().StringVarP(&models, "models", "m", "claude-sonnet-4-20250514", "Comma-separated list of models")
+    command.Flags().Float64Var(&temperature, "temperature", 0.7, "Temperature setting")
+    command.Flags().IntVar(&maxTokens, "max-tokens", 4096, "Max tokens for response")
+
+    return &command
+}
+```
+
+### 6. Add unit tests
+
+**File:** `internal/assistant/files_test.go`
+
+```go
+package assistant
+
+import (
+    "os"
+    "path/filepath"
+    "testing"
+)
+
+func TestListFiles(t *testing.T) {
+    t.Run("filters and sorts files", func(t *testing.T) {
+        tmpDir := t.TempDir()
+        for _, f := range []string{"b.md", "a.txt", ".hidden.md", "c.md", "readme.pdf"} {
+            os.WriteFile(filepath.Join(tmpDir, f), []byte("test"), 0644)
+        }
+        os.Mkdir(filepath.Join(tmpDir, "subdir"), 0755)
+
+        result, err := ListFiles(tmpDir, DefaultFilter())
+        if err != nil {
+            t.Fatalf("ListFiles() error = %v", err)
+        }
+
+        expected := []string{"a.txt", "b.md", "c.md"}
+        if len(result) != len(expected) {
+            t.Fatalf("Expected %v, got %v", expected, result)
+        }
+    })
+}
+```
+
+**File:** `internal/assistant/prompt_test.go`
+
+```go
+package assistant
+
+import (
+    "os"
+    "path/filepath"
+    "strings"
+    "testing"
+)
+
+func TestCompileSystemPrompt(t *testing.T) {
+    t.Run("compiles fragments in order", func(t *testing.T) {
+        tmpDir := t.TempDir()
+        promptDir := filepath.Join(tmpDir, "System prompt")
+        os.MkdirAll(promptDir, 0755)
+
+        os.WriteFile(filepath.Join(promptDir, "fragment_002.md"), []byte("Second"), 0644)
+        os.WriteFile(filepath.Join(promptDir, "fragment_001.md"), []byte("First"), 0644)
+
+        result, err := CompileSystemPrompt(tmpDir)
+        if err != nil {
+            t.Fatalf("error = %v", err)
+        }
+
+        if strings.Index(result, "fragment_001") > strings.Index(result, "fragment_002") {
+            t.Error("Fragments should be sorted alphabetically")
+        }
+    })
+
+    t.Run("returns error for empty directory", func(t *testing.T) {
+        tmpDir := t.TempDir()
+        os.MkdirAll(filepath.Join(tmpDir, "System prompt"), 0755)
+
+        if _, err := CompileSystemPrompt(tmpDir); err == nil {
+            t.Error("Expected error for empty directory")
+        }
+    })
+}
+```
+
+**File:** `internal/plan/plan_test.go`
+
+```go
+package plan
+
+import (
+    "os"
+    "path/filepath"
+    "testing"
+)
+
+func TestGenerate(t *testing.T) {
+    t.Run("creates plan successfully", func(t *testing.T) {
+        tmpDir := t.TempDir()
+        assistantDir := filepath.Join(tmpDir, "test-assistant")
+
+        os.MkdirAll(filepath.Join(assistantDir, "Input"), 0755)
+        os.MkdirAll(filepath.Join(assistantDir, "Output"), 0755)
+        os.MkdirAll(filepath.Join(assistantDir, "System prompt"), 0755)
+        os.WriteFile(filepath.Join(assistantDir, "Input", "query.md"), []byte("query"), 0644)
+        os.WriteFile(filepath.Join(assistantDir, "System prompt", "prompt.md"), []byte("prompt"), 0644)
+
+        result, err := Generate(tmpDir, "test-assistant", Config{
+            Models: []string{"gpt-4", "claude-3"}, Temperature: 0.5, MaxTokens: 2048,
+        })
+        if err != nil {
+            t.Fatalf("error = %v", err)
+        }
+
+        if _, err := os.Stat(result.PlanPath); os.IsNotExist(err) {
+            t.Error("plan.toml was not created")
+        }
+        if len(result.PlanID) != 36 {
+            t.Errorf("Invalid UUID: %s", result.PlanID)
+        }
+    })
+
+    t.Run("fails for missing directory", func(t *testing.T) {
+        if _, err := Generate(t.TempDir(), "nonexistent", Config{}); err == nil {
+            t.Error("Expected error")
+        }
+    })
+}
+
+func TestParseModels(t *testing.T) {
+    tests := []struct{ input string; expected []string }{
+        {"gpt-4", []string{"gpt-4"}},
+        {"gpt-4,claude-3", []string{"gpt-4", "claude-3"}},
+        {"gpt-4, claude-3 , gemini", []string{"gpt-4", "claude-3", "gemini"}},
+        {"", nil},
+    }
+
+    for _, tt := range tests {
+        if result := ParseModels(tt.input); len(result) != len(tt.expected) {
+            t.Errorf("ParseModels(%q) = %v, want %v", tt.input, result, tt.expected)
+        }
+    }
+}
+```
+
+## File Changes
+
+| File                                | Action |
+|-------------------------------------|--------|
+| `go.mod`                            | Modify |
+| `go.sum`                            | Modify |
+| `internal/assistant/files.go`       | Create |
+| `internal/assistant/files_test.go`  | Create |
+| `internal/assistant/prompt.go`      | Create |
+| `internal/assistant/prompt_test.go` | Create |
+| `internal/plan/plan.go`             | Create |
+| `internal/plan/plan_test.go`        | Create |
+| `internal/command/plan.go`          | Modify |
+
+## Acceptance Criteria
+
+- [x] Creates `<AssistantID>/Output/<plan_id>/plan.toml` with valid UUID v4
+- [x] System prompt compiled from sorted fragments with delimiters
+- [x] Queries collected from Input/ (filename only)
+- [x] Hidden files and subdirectories ignored
+- [x] Error on missing assistant or empty System prompt/
+- [x] Warning on empty Input/
+- [x] Unit tests pass

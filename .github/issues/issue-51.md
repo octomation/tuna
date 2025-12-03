@@ -1,0 +1,162 @@
+---
+id: 51
+database_id: 3662526298
+node_id: I_kwDOPyI7hs7aTbda
+status: closed
+title: "task: add stub commands for CLI"
+labels: ["type: improvement","scope: code","impact: low","effort: easy"]
+url: https://github.com/octomation/tuna/issues/51
+created_at: 2025-11-25T10:50:20Z
+updated_at: 2025-12-07T15:31:44Z
+---
+
+# task: add stub commands for CLI
+
+# Add Stub Commands for CLI
+
+## Context
+
+The project has only demo commands (`panic`, `stderr`, `stdout`). We need to scaffold the main CLI commands (`init`, `plan`, `exec`) before implementing actual logic. These stubs should match the CLI interface from the specification, accept all flags/arguments, and print placeholder messages.
+
+## Commands Specification
+
+### `tuna init <AssistantID>`
+
+Initialize project structure for a new assistant.
+
+**Stub output:** `"Initializing assistant: {AssistantID}..."`
+
+### `tuna plan <AssistantID> [flags]`
+
+Create an execution plan.
+
+| Flag            | Short | Type   | Default                    | Description                    |
+|-----------------|-------|--------|----------------------------|--------------------------------|
+| `--models`      | `-m`  | string | `claude-sonnet-4-20250514` | Comma-separated list of models |
+| `--temperature` |       | float  | `0.7`                      | Temperature setting            |
+| `--max-tokens`  |       | int    | `4096`                     | Max tokens for response        |
+
+**Stub output:** Print assistant ID and all flag values.
+
+### `tuna exec <PlanID> [flags]`
+
+Execute a plan.
+
+| Flag         | Short | Type | Default | Description                                          |
+|--------------|-------|------|---------|------------------------------------------------------|
+| `--parallel` | `-p`  | int  | `1`     | Number of parallel requests                          |
+| `--dry-run`  |       | bool | `false` | Show what would be executed without making API calls |
+| `--continue` |       | bool | `false` | Continue from last checkpoint if interrupted         |
+
+**Stub output:** Print plan ID and all flag values.
+
+## Implementation Steps
+
+### 1. Update root command metadata
+
+**File:** `internal/command/root.go`
+
+- `Use`: `tuna`
+- `Short`: `Prompt engineering automation tool`
+- `Long`: Descriptive help text
+
+### 2. Create command files
+
+Create `internal/command/init.go`:
+```go
+func Init() *cobra.Command {
+    command := cobra.Command{
+        Use:   "init <AssistantID>",
+        Short: "Initialize project structure for a new assistant",
+        Args:  cobra.ExactArgs(1),
+        Run: func(cmd *cobra.Command, args []string) {
+            cmd.Printf("Initializing assistant: %s...\n", args[0])
+        },
+    }
+    return &command
+}
+```
+
+Create `internal/command/plan.go`:
+```go
+func Plan() *cobra.Command {
+    var (
+        models      string
+        temperature float64
+        maxTokens   int
+    )
+
+    command := cobra.Command{
+        Use:   "plan <AssistantID>",
+        Short: "Create an execution plan",
+        Args:  cobra.ExactArgs(1),
+        Run: func(cmd *cobra.Command, args []string) {
+            cmd.Printf("Creating plan for assistant: %s\n", args[0])
+            cmd.Printf("  Models:      %s\n", models)
+            cmd.Printf("  Temperature: %.1f\n", temperature)
+            cmd.Printf("  Max tokens:  %d\n", maxTokens)
+        },
+    }
+
+    command.Flags().StringVarP(&models, "models", "m", "claude-sonnet-4-20250514", "Comma-separated list of models")
+    command.Flags().Float64Var(&temperature, "temperature", 0.7, "Temperature setting")
+    command.Flags().IntVar(&maxTokens, "max-tokens", 4096, "Max tokens for response")
+
+    return &command
+}
+```
+
+Create `internal/command/exec.go`:
+```go
+func Exec() *cobra.Command {
+    var (
+        parallel   int
+        dryRun     bool
+        continueOp bool
+    )
+
+    command := cobra.Command{
+        Use:   "exec <PlanID>",
+        Short: "Execute a plan",
+        Args:  cobra.ExactArgs(1),
+        Run: func(cmd *cobra.Command, args []string) {
+            cmd.Printf("Executing plan: %s\n", args[0])
+            cmd.Printf("  Parallel: %d\n", parallel)
+            cmd.Printf("  Dry run:  %t\n", dryRun)
+            cmd.Printf("  Continue: %t\n", continueOp)
+        },
+    }
+
+    command.Flags().IntVarP(&parallel, "parallel", "p", 1, "Number of parallel requests")
+    command.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would be executed without making API calls")
+    command.Flags().BoolVar(&continueOp, "continue", false, "Continue from last checkpoint if interrupted")
+
+    return &command
+}
+```
+
+### 3. Register commands and cleanup
+
+**Modify:** `internal/command/root.go`
+- Add `Init()`, `Plan()`, `Exec()` to `AddCommand()`
+- Remove demo imports and commands
+
+**Delete:** `internal/command/demo/` directory
+
+## File Changes
+
+| File                         | Action |
+|------------------------------|--------|
+| `internal/command/root.go`   | Modify |
+| `internal/command/init.go`   | Create |
+| `internal/command/plan.go`   | Create |
+| `internal/command/exec.go`   | Create |
+| `internal/command/demo/`     | Delete |
+
+## Acceptance Criteria
+
+- [x] All three commands visible in `tuna --help`
+- [x] Each command accepts its specified arguments and flags
+- [x] Running a command prints its received configuration
+- [x] `tuna <cmd> --help` shows proper usage
+- [x] `go build` succeeds without errors

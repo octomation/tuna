@@ -1,0 +1,121 @@
+---
+id: 58
+database_id: 3676996025
+node_id: I_kwDOPyI7hs7bKoG5
+status: closed
+title: "improvement: switch to ULID instead of UUID for Plan IDs"
+labels: ["type: improvement","scope: code","scope: deps","impact: medium","effort: easy"]
+url: https://github.com/octomation/tuna/issues/58
+created_at: 2025-11-29T18:38:00Z
+updated_at: 2025-12-07T16:08:44Z
+---
+
+# improvement: switch to ULID instead of UUID for Plan IDs
+
+# Switch to ULID instead of UUID for Plan IDs
+
+## Context
+
+Plan IDs are generated using UUID v4, which produces random identifiers with no inherent ordering. This makes it difficult to identify recent plans or sort them chronologically.
+
+**Solution**: Replace UUID with ULID (Universally Unique Lexicographically Sortable Identifier) which encodes timestamp in the first 10 characters while maintaining uniqueness.
+
+## Specification
+
+### Benefits
+
+1. **Chronological sorting** — natural `ls` ordering from oldest to newest
+2. **Future-proof** — enables interactive plan picker in `tuna exec` (sorted newest first)
+3. **Same guarantees** — 128-bit, URL-safe, case-insensitive
+
+### Format Comparison
+
+| Format | Example                                | Length |
+|--------|----------------------------------------|--------|
+| ULID   | `01ARZ3NDEKTSV4RRFFQ69G5FAV`           | 26     |
+| UUID   | `d9c35d53-288b-4bd4-ae44-572336ef7713` | 36     |
+
+### References
+
+- [ULID Spec](https://github.com/ulid/spec)
+- [oklog/ulid Go library](https://github.com/oklog/ulid)
+- [Video: ULID - the ONLY identifier you should use?](https://youtu.be/otW7nLd8P04)
+
+## Implementation Steps
+
+### 1. Update dependencies
+
+```bash
+go get github.com/oklog/ulid/v2
+go mod tidy  # removes unused github.com/google/uuid
+```
+
+### 2. Update plan generation
+
+**File:** `internal/plan/plan.go`
+
+```go
+// Replace import:
+// "github.com/google/uuid"
+// With:
+"crypto/rand"
+"time"
+"github.com/oklog/ulid/v2"
+
+// Replace generation:
+// planID := uuid.New().String()
+// With:
+planID := ulid.MustNew(ulid.Timestamp(time.Now()), rand.Reader).String()
+```
+
+### 3. Update tests
+
+**File:** `internal/plan/plan_test.go`
+
+```go
+// Replace:
+// if len(result.PlanID) != 36 {
+//     t.Errorf("Invalid UUID format: %s", result.PlanID)
+// }
+// With:
+if len(result.PlanID) != 26 {
+    t.Errorf("Invalid ULID format: %s", result.PlanID)
+}
+```
+
+### 4. Update documentation
+
+**File:** `CLAUDE.md`
+
+Replace `Plan ID (UUID)` → `Plan ID (ULID)`
+
+### 5. Verify
+
+```bash
+go test ./internal/plan/...
+go build ./...
+
+# Manual: create plans and verify sorting
+tuna plan test-assistant -m "gpt-4"
+sleep 1
+tuna plan test-assistant -m "gpt-4"
+ls test-assistant/Output/  # should be chronological
+```
+
+## File Changes
+
+| File                         | Action |
+|------------------------------|--------|
+| `go.mod`                     | Modify |
+| `go.sum`                     | Modify |
+| `internal/plan/plan.go`      | Modify |
+| `internal/plan/plan_test.go` | Modify |
+| `CLAUDE.md`                  | Modify |
+
+## Acceptance Criteria
+
+- [x] `github.com/oklog/ulid/v2` added, `github.com/google/uuid` removed
+- [x] Plan IDs are 26 characters (ULID format)
+- [x] Plans sortable chronologically by folder name
+- [x] Tests pass with updated assertions
+- [x] Documentation updated

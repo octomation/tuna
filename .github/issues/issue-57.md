@@ -1,0 +1,282 @@
+---
+id: 57
+database_id: 3676469830
+node_id: I_kwDOPyI7hs7bInpG
+status: closed
+title: "feature: support multiple LLM providers"
+labels: ["type: feature","scope: code","impact: high","effort: medium"]
+url: https://github.com/octomation/tuna/issues/57
+created_at: 2025-11-29T07:37:34Z
+updated_at: 2025-12-07T16:07:35Z
+---
+
+# feature: support multiple LLM providers
+
+# Support Multiple LLM Providers
+
+## Context
+
+Currently tuna supports only a single LLM provider via environment variables (`LLM_API_TOKEN`, `LLM_BASE_URL`). This limits the ability to compare models from different providers in a single execution or leverage cost-effective aggregators alongside direct provider access.
+
+**Goal**: Implement TOML configuration with multiple providers, model aliases, rate limiting, and automatic request routing.
+
+## Specification
+
+### Configuration File
+
+Location priority:
+1. `.tuna.toml` in current/parent directories
+2. `~/.config/tuna.toml`
+3. Fallback: `LLM_API_TOKEN`/`LLM_BASE_URL` env vars (backward compatibility)
+
+```toml
+default_provider = "openrouter"
+
+[aliases]
+sonnet = "claude-sonnet-4-20250514"
+gpt4 = "gpt-4o"
+
+[[providers]]
+name = "openrouter"
+base_url = "https://openrouter.ai/api/v1"
+api_token_env = "OPENROUTER_API_KEY"
+rate_limit = "10rpm"
+models = ["anthropic/claude-sonnet-4", "openai/gpt-4o"]
+
+[[providers]]
+name = "anthropic"
+base_url = "https://api.anthropic.com/v1"
+api_token_env = "ANTHROPIC_API_KEY"
+rate_limit = "60rpm"
+models = ["claude-sonnet-4-20250514", "claude-haiku-3-5-20241022"]
+```
+
+### Rate Limiting
+
+Format: `<value><unit>` — `rps` (per second), `rpm` (per minute), `rph` (per hour).
+Empty = unlimited. Uses `golang.org/x/time/rate` for blocking wait.
+
+### CLI Commands
+
+```bash
+tuna config show      # Display current configuration
+tuna config validate  # Validate configuration file
+tuna config resolve <model>  # Show alias → model → provider
+```
+
+### Routing Algorithm
+
+1. Resolve alias to full model name
+2. Find provider with model in `models` list
+3. Fallback to `default_provider` for unknown models
+4. Wait for rate limiter, then send request
+
+### Error Handling
+
+- Missing provider for model → use default with warning
+- Missing API token → error with env variable name
+- Invalid config → validation errors with details
+- Rate limit → block and wait (not error)
+
+### Backward Compatibility
+
+If no config file and `LLM_API_TOKEN`/`LLM_BASE_URL` set → create implicit "default" provider with deprecation warning.
+
+### Example Usage
+
+```bash
+tuna plan MyAssistant --models "sonnet,gpt4"  # aliases
+tuna exec abc123  # router resolves and routes
+
+tuna config resolve sonnet
+# Output: sonnet -> claude-sonnet-4-20250514 -> anthropic
+```
+
+## Implementation Steps
+
+### Phase 1: Configuration Infrastructure
+
+#### 1. Configuration structures
+
+**File:** `internal/config/config.go`
+
+```go
+type Config struct {
+    DefaultProvider string            `toml:"default_provider"`
+    Aliases         map[string]string `toml:"aliases"`
+    Providers       []Provider        `toml:"providers"`
+}
+
+type Provider struct {
+    Name        string   `toml:"name"`
+    BaseURL     string   `toml:"base_url"`
+    APITokenEnv string   `toml:"api_token_env"`
+    RateLimit   string   `toml:"rate_limit"`
+    Models      []string `toml:"models"`
+}
+
+type RateLimit struct {
+    Value int
+    Unit  time.Duration
+}
+
+func ParseRateLimit(s string) (*RateLimit, error)  // "10rpm" -> {10, time.Minute}
+func (c *Config) Validate() error
+```
+
+#### 2. Configuration loader
+
+**File:** `internal/config/loader.go`
+
+```go
+func Load() (*Config, error)           // priority: .tuna.toml -> ~/.config/tuna.toml -> env vars
+func LoadFromFile(path string) (*Config, error)
+func findConfigFile() (string, error)  // search up directory tree
+```
+
+#### 3. Tests
+
+**File:** `internal/config/config_test.go`
+- `ParseRateLimit()`: valid (10rpm, 5rps, 100rph), invalid
+- `Config.Validate()`: valid, missing default_provider, duplicate providers
+
+**File:** `internal/config/loader_test.go`
+- Load from `.tuna.toml`, `~/.config/tuna.toml`
+- Priority (project > global)
+- Fallback to env vars
+
+### Phase 2: Router Client
+
+#### 1. Interface
+
+**File:** `internal/llm/interface.go`
+
+```go
+type ChatClient interface {
+    Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error)
+}
+
+var _ ChatClient = (*Client)(nil)
+var _ ChatClient = (*Router)(nil)
+```
+
+#### 2. Router
+
+**File:** `internal/llm/router.go`
+
+```go
+type Router struct {
+    providers       map[string]*Client
+    rateLimiters    map[string]*rate.Limiter
+    aliases         map[string]string
+    modelMapping    map[string]string
+    defaultProvider string
+}
+
+func NewRouter(cfg *config.Config) (*Router, error)
+func (r *Router) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error)
+func (r *Router) ResolveModel(model string) (fullName, provider string)
+```
+
+#### 3. Tests
+
+**File:** `internal/llm/router_test.go`
+- Routing to correct provider
+- Fallback to default for unknown models
+- Alias resolution
+- Rate limiting blocks on exceeded
+
+### Phase 3: Integration
+
+#### 1. Executor modification
+
+**File:** `internal/exec/executor.go`
+
+```go
+// Change field type:
+type Executor struct {
+    llmClient llm.ChatClient  // interface instead of *llm.Client
+}
+```
+
+#### 2. Exec command modification
+
+**File:** `internal/command/exec.go`
+
+```go
+// Replace:
+// llmCfg, err := llm.ConfigFromEnv()
+// llmClient := llm.NewClient(llmCfg)
+
+// With:
+cfg, err := config.Load()
+router, err := llm.NewRouter(cfg)
+```
+
+#### 3. Config command
+
+**File:** `internal/command/config.go`
+
+```go
+func Config() *cobra.Command       // parent command
+func configShow() *cobra.Command   // display config
+func configValidate() *cobra.Command
+func configResolve() *cobra.Command  // resolve <model>
+```
+
+#### 4. Register in root.go
+
+Add `Config()` to subcommands.
+
+### Phase 4: Documentation
+
+- Update `CLAUDE.md` with TOML configuration docs
+- Create `.tuna.toml.example` with full example
+
+## File Changes
+
+### Phase 1
+
+| File                             | Action |
+|----------------------------------|--------|
+| `internal/config/config.go`      | Create |
+| `internal/config/config_test.go` | Create |
+| `internal/config/loader.go`      | Create |
+| `internal/config/loader_test.go` | Create |
+
+### Phase 2
+
+| File                          | Action |
+|-------------------------------|--------|
+| `internal/llm/interface.go`   | Create |
+| `internal/llm/router.go`      | Create |
+| `internal/llm/router_test.go` | Create |
+| `internal/llm/client.go`      | Modify |
+
+### Phase 3
+
+| File                         | Action |
+|------------------------------|--------|
+| `internal/exec/executor.go`  | Modify |
+| `internal/command/exec.go`   | Modify |
+| `internal/command/config.go` | Create |
+| `internal/command/root.go`   | Modify |
+
+### Phase 4
+
+| File                 | Action |
+|----------------------|--------|
+| `CLAUDE.md`          | Modify |
+| `.tuna.toml.example` | Create |
+
+## Acceptance Criteria
+
+- [x] Configuration loads from `.tuna.toml` or `~/.config/tuna.toml`
+- [x] Multiple providers with own credentials
+- [x] Models routed to correct provider automatically
+- [x] Default provider for unknown models
+- [x] Backward compatibility with env vars
+- [x] `tuna config show/validate/resolve` work
+- [x] Rate limiting per provider (configurable)
+- [x] Model aliases resolve before provider lookup
+- [x] All tests pass

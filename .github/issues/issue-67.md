@@ -1,0 +1,140 @@
+---
+id: 67
+database_id: 3701477890
+node_id: I_kwDOPyI7hs7coBIC
+status: closed
+title: "task: support direct API token in configuration"
+labels: ["type: improvement","scope: code","impact: low","effort: easy"]
+url: https://github.com/octomation/tuna/issues/67
+created_at: 2025-12-06T11:08:36Z
+updated_at: 2025-12-07T16:20:09Z
+---
+
+# task: support direct API token in configuration
+
+# Support Direct API Token in Configuration
+
+## Context
+
+Currently, the only way to provide an API token for a provider is via `api_token_env`, which references an environment variable. This requires managing environment variables separately from the config and adds friction for quick local testing.
+
+This task adds a new `api_token` field to allow specifying tokens directly in the configuration file.
+
+## Specification
+
+### Token Resolution Priority
+
+1. **`api_token`** — use the value directly if present
+2. **`api_token_env`** — read from the specified environment variable
+3. **Error** — if neither is provided or the env variable is empty
+
+### Configuration Examples
+
+**Direct token (local setup):**
+
+```toml
+[[providers]]
+name = "openrouter"
+base_url = "https://openrouter.ai/api/v1"
+api_token = "sk-or-v1-..."
+models = ["anthropic/claude-sonnet-4"]
+```
+
+**Environment variable (production/CI):**
+
+```toml
+[[providers]]
+name = "openrouter"
+base_url = "https://openrouter.ai/api/v1"
+api_token_env = "OPENROUTER_API_KEY"
+models = ["anthropic/claude-sonnet-4"]
+```
+
+**Both specified (direct takes precedence):**
+
+```toml
+[[providers]]
+name = "openrouter"
+base_url = "https://openrouter.ai/api/v1"
+api_token = "sk-or-v1-..."           # Used when present
+api_token_env = "OPENROUTER_API_KEY" # Fallback if api_token is empty
+models = ["anthropic/claude-sonnet-4"]
+```
+
+### Security Considerations
+
+- Direct tokens in config files should be used carefully
+- The config file (`.tuna.toml`) should be in `.gitignore` if it contains secrets
+- For shared projects, prefer `api_token_env` to avoid accidental token commits
+
+## Implementation Steps
+
+### 1. Update Provider struct
+
+Add `APIToken` field:
+
+```go
+type Provider struct {
+    Name        string   `toml:"name"`
+    BaseURL     string   `toml:"base_url"`
+    APIToken    string   `toml:"api_token"`     // Direct token value
+    APITokenEnv string   `toml:"api_token_env"` // Env variable reference
+    RateLimit   string   `toml:"rate_limit"`
+    Models      []string `toml:"models"`
+}
+```
+
+### 2. Add ResolveAPIToken method
+
+```go
+func (p *Provider) ResolveAPIToken() (string, error) {
+    if p.APIToken != "" {
+        return p.APIToken, nil
+    }
+    if p.APITokenEnv != "" {
+        if token := os.Getenv(p.APITokenEnv); token != "" {
+            return token, nil
+        }
+        return "", fmt.Errorf("environment variable %q is not set", p.APITokenEnv)
+    }
+    return "", errors.New("neither api_token nor api_token_env is specified")
+}
+```
+
+### 3. Update validation
+
+Change validation to accept either field:
+
+```go
+if p.APIToken == "" && p.APITokenEnv == "" {
+    errs = append(errs, fmt.Errorf("provider[%d] %q: either api_token or api_token_env is required", i, p.Name))
+}
+```
+
+### 4. Update router
+
+Use `ResolveAPIToken()` instead of direct env lookup.
+
+### 5. Update documentation
+
+Document the new `api_token` field in `CLAUDE.md`.
+
+## File Changes
+
+| File                             | Action |
+|----------------------------------|--------|
+| `internal/config/config.go`      | Modify |
+| `internal/config/config_test.go` | Modify |
+| `internal/llm/router.go`         | Modify |
+| `CLAUDE.md`                      | Modify |
+
+## Acceptance Criteria
+
+- [x] `api_token` field is recognized in provider configuration
+- [x] Direct token takes precedence over environment variable
+- [x] Validation passes when either `api_token` or `api_token_env` is provided
+- [x] Validation fails when neither is provided
+- [x] `tuna config show` works correctly with both token types
+- [x] `tuna config validate` validates the new field properly
+- [x] Documentation is updated with examples
+- [x] Existing tests pass, new tests cover token resolution

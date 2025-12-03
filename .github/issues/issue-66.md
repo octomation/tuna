@@ -1,0 +1,226 @@
+---
+id: 66
+database_id: 3701416131
+node_id: I_kwDOPyI7hs7cnyDD
+status: closed
+title: "task: implement interactive TUI using Charm libraries"
+labels: ["type: improvement","scope: code","scope: deps","impact: medium","effort: medium"]
+url: https://github.com/octomation/tuna/issues/66
+created_at: 2025-12-06T10:27:42Z
+updated_at: 2025-12-07T16:19:16Z
+---
+
+# task: implement interactive TUI using Charm libraries
+
+# Implement interactive TUI using Charm libraries
+
+## Context
+
+All commands (`init`, `plan`, `exec`) use basic `cmd.Printf` for output. This task replaces plain text output with interactive TUI components built on Charm libraries to provide consistent visual feedback, progress tracking, and improved UX.
+
+## Specification
+
+### Dependencies
+
+| Package                              | Purpose                              |
+|--------------------------------------|--------------------------------------|
+| `github.com/charmbracelet/bubbletea` | TUI framework                        |
+| `github.com/charmbracelet/bubbles`   | Reusable TUI components              |
+| `github.com/charmbracelet/lipgloss`  | Terminal styling                     |
+| `github.com/charmbracelet/log`       | Styled logging (replace fatih/color) |
+| `github.com/mattn/go-isatty`         | TTY detection                        |
+
+### Command Requirements
+
+**`tuna init`:**
+- Animated spinner while creating directories
+- Styled list of created/skipped items (color-coded)
+- Success/info message with lipgloss styling
+
+**`tuna plan`:**
+- Spinner during plan generation
+- Styled summary box with plan details (ID, models, queries count)
+- Warning styling for edge cases (no queries found)
+
+**`tuna exec`:**
+- Real-time progress bar showing overall completion
+- Per-model/per-query status table
+- Live token counter and elapsed time display
+- Error highlighting
+- Final summary with styled statistics
+
+### Architecture
+
+```
+internal/tui/
+├── tui.go         # TTY detection and mode switching
+├── styles.go      # Shared lipgloss styles
+├── spinner.go     # Reusable spinner component
+├── progress.go    # Progress bar component
+├── list.go        # Styled list output
+└── exec/
+    ├── model.go   # bubbletea model for exec command
+    ├── view.go    # View rendering
+    └── update.go  # Message handling
+```
+
+### Non-Interactive Fallback
+
+Preserve plain text output for:
+- Piped output (`!isatty`)
+- CI environments (`CI=true`)
+- Explicit flag (`--no-tui`)
+
+## Implementation Steps
+
+### 1. Add dependencies
+
+```bash
+go get github.com/charmbracelet/bubbletea@latest
+go get github.com/charmbracelet/bubbles@latest
+go get github.com/charmbracelet/lipgloss@latest
+go get github.com/charmbracelet/log@latest
+go get github.com/mattn/go-isatty@latest
+```
+
+### 2. Create TUI foundation
+
+**`internal/tui/tui.go`** — TTY detection:
+
+```go
+package tui
+
+func IsInteractive() bool // check isatty + CI env + --no-tui flag
+func SetNonInteractive()  // force non-interactive mode
+```
+
+**`internal/tui/styles.go`** — shared lipgloss styles:
+
+```go
+var (
+    Success  lipgloss.Style // green
+    Warning  lipgloss.Style // yellow
+    Error    lipgloss.Style // red
+    Info     lipgloss.Style // blue
+    Muted    lipgloss.Style // gray
+    Bold     lipgloss.Style
+    Title    lipgloss.Style
+)
+```
+
+### 3. Implement reusable components
+
+**`internal/tui/spinner.go`:**
+
+```go
+func RunWithSpinner(message string, fn func() error) error
+```
+
+**`internal/tui/progress.go`:**
+
+```go
+type Progress struct { ... }
+func NewProgress(total int) *Progress
+func (p *Progress) Increment()
+func (p *Progress) View() string
+```
+
+**`internal/tui/list.go`:**
+
+```go
+func RenderCreated(items []string) string
+func RenderSkipped(items []string) string
+func RenderErrors(items []string) string
+```
+
+### 4. Migrate `init` command
+
+- Wrap `assistant.Init()` call with spinner
+- Use `tui.RenderCreated()` / `tui.RenderSkipped()` for output
+- Add non-interactive fallback (keep current behavior)
+
+### 5. Migrate `plan` command
+
+- Wrap `plan.Generate()` call with spinner
+- Use styled box for summary output
+- Style warnings with `tui.Warning`
+- Add non-interactive fallback
+
+### 6. Create exec TUI model
+
+Model state:
+
+```go
+type Model struct {
+    progress    progress.Model
+    table       table.Model
+    totalTokens exec.TokenUsage
+    elapsed     time.Duration
+    results     []exec.Result
+    errors      []error
+    done        bool
+}
+```
+
+Messages:
+
+```go
+type QueryStartMsg   struct { QueryID, Model string }
+type QueryDoneMsg    struct { QueryID, Model string; Tokens exec.TokenUsage }
+type QueryErrorMsg   struct { QueryID, Model string; Err error }
+type ExecutionDoneMsg struct { Summary exec.Summary }
+```
+
+### 7. Integrate TUI into `exec` command
+
+Changes in `executor.go`:
+- Add callback/channel for progress events
+- Emit events on query start/complete/error
+
+Changes in `exec.go`:
+- Run bubbletea program in interactive mode
+- Keep current output for non-interactive mode
+
+### 8. Add `--no-tui` flag
+
+Add persistent flag to root command:
+
+```go
+rootCmd.PersistentFlags().Bool("no-tui", false, "Disable interactive TUI")
+```
+
+### 9. Cleanup and testing
+
+- Remove `github.com/fatih/color` dependency
+- Verify all existing tests pass
+- Manual testing in TTY and non-TTY modes
+
+## File Changes
+
+| File                           | Action |
+|--------------------------------|--------|
+| `go.mod`                       | Modify |
+| `go.sum`                       | Modify |
+| `internal/tui/tui.go`          | Create |
+| `internal/tui/styles.go`       | Create |
+| `internal/tui/spinner.go`      | Create |
+| `internal/tui/progress.go`     | Create |
+| `internal/tui/list.go`         | Create |
+| `internal/tui/exec/model.go`   | Create |
+| `internal/tui/exec/view.go`    | Create |
+| `internal/tui/exec/update.go`  | Create |
+| `internal/command/init.go`     | Modify |
+| `internal/command/plan.go`     | Modify |
+| `internal/command/exec.go`     | Modify |
+| `internal/command/root.go`     | Modify |
+| `internal/exec/executor.go`    | Modify |
+
+## Acceptance Criteria
+
+- [x] Charm libraries added to dependencies
+- [x] `internal/tui/` package with shared components
+- [x] `init` command uses styled output
+- [x] `plan` command uses styled output
+- [x] `exec` command shows real-time progress with bubbletea
+- [x] Non-interactive fallback works correctly
+- [x] Existing tests pass

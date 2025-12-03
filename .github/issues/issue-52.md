@@ -1,0 +1,371 @@
+---
+id: 52
+database_id: 3663059729
+node_id: I_kwDOPyI7hs7aVdsR
+status: closed
+title: "feature: implement `tuna init` command"
+labels: ["type: feature","scope: code","impact: low","effort: easy"]
+url: https://github.com/octomation/tuna/issues/52
+created_at: 2025-11-25T13:22:01Z
+updated_at: 2025-12-07T15:37:05Z
+---
+
+# feature: implement `tuna init` command
+
+# Implement `tuna init` Command
+
+## Context
+
+The stub command exists in `internal/command/init.go` (from #51). Now we need to implement actual functionality: create directory structure for a new Assistant with template files.
+
+## Specification
+
+### Usage
+
+```bash
+tuna init <AssistantID>
+```
+
+### Directory Structure
+
+```
+<AssistantID>/
+├── Input/
+│   └── example_query.md      # "Write your user query here."
+├── Output/
+│   └── .gitkeep              # Empty file to preserve directory in git
+└── System prompt/
+    └── fragment_001.md       # "Write your system prompt fragment here."
+```
+
+### AssistantID Validation
+
+Must be a valid directory name:
+- Not empty
+- Not `.` or `..`
+- No forbidden characters: `/ \ : * ? " < > |`
+- Max 255 characters
+
+### Behavior with Existing Structure
+
+If directory partially exists:
+- Create missing subdirectories
+- Create template files only if parent directory is empty
+- Skip existing files (no overwrite)
+- Report what was created/skipped
+
+## Implementation Steps
+
+### 1. Create assistant package with validation
+
+**File:** `internal/assistant/validate.go`
+
+```go
+package assistant
+
+import (
+    "errors"
+    "strings"
+)
+
+var (
+    ErrEmptyID      = errors.New("assistant ID cannot be empty")
+    ErrInvalidChars = errors.New("assistant ID contains invalid characters")
+    ErrReservedName = errors.New("assistant ID cannot be '.' or '..'")
+    ErrTooLong      = errors.New("assistant ID exceeds 255 characters")
+)
+
+var invalidChars = []rune{'/', '\\', ':', '*', '?', '"', '<', '>', '|'}
+
+func ValidateID(id string) error {
+    if id == "" {
+        return ErrEmptyID
+    }
+    if id == "." || id == ".." {
+        return ErrReservedName
+    }
+    if len(id) > 255 {
+        return ErrTooLong
+    }
+    for _, char := range invalidChars {
+        if strings.ContainsRune(id, char) {
+            return ErrInvalidChars
+        }
+    }
+    return nil
+}
+```
+
+### 2. Create initialization logic
+
+**File:** `internal/assistant/init.go`
+
+```go
+package assistant
+
+import (
+    "fmt"
+    "os"
+    "path/filepath"
+)
+
+type InitResult struct {
+    Created []string
+    Skipped []string
+}
+
+const (
+    ExampleQueryContent = "# Example Query\n\nWrite your user query here.\n"
+    Fragment001Content  = "# Fragment 001\n\nWrite your system prompt fragment here.\n"
+)
+
+func Init(baseDir, assistantID string) (*InitResult, error) {
+    if err := ValidateID(assistantID); err != nil {
+        return nil, fmt.Errorf("invalid assistant ID: %w", err)
+    }
+
+    result := &InitResult{}
+    root := filepath.Join(baseDir, assistantID)
+
+    dirs := []string{
+        filepath.Join(root, "Input"),
+        filepath.Join(root, "Output"),
+        filepath.Join(root, "System prompt"),
+    }
+
+    files := []struct {
+        path, content, dir string
+    }{
+        {filepath.Join(root, "Input", "example_query.md"), ExampleQueryContent, filepath.Join(root, "Input")},
+        {filepath.Join(root, "Output", ".gitkeep"), "", filepath.Join(root, "Output")},
+        {filepath.Join(root, "System prompt", "fragment_001.md"), Fragment001Content, filepath.Join(root, "System prompt")},
+    }
+
+    for _, dir := range dirs {
+        if err := createDir(dir, result); err != nil {
+            return nil, err
+        }
+    }
+
+    for _, f := range files {
+        if err := createFile(f.path, f.content, f.dir, result); err != nil {
+            return nil, err
+        }
+    }
+
+    return result, nil
+}
+
+func createDir(path string, result *InitResult) error {
+    if _, err := os.Stat(path); os.IsNotExist(err) {
+        if err := os.MkdirAll(path, 0755); err != nil {
+            return fmt.Errorf("failed to create directory %s: %w", path, err)
+        }
+        result.Created = append(result.Created, path)
+    } else if err != nil {
+        return fmt.Errorf("failed to check directory %s: %w", path, err)
+    } else {
+        result.Skipped = append(result.Skipped, path)
+    }
+    return nil
+}
+
+func createFile(path, content, parentDir string, result *InitResult) error {
+    if _, err := os.Stat(path); err == nil {
+        result.Skipped = append(result.Skipped, path)
+        return nil
+    }
+
+    entries, err := os.ReadDir(parentDir)
+    if err != nil {
+        return fmt.Errorf("failed to read directory %s: %w", parentDir, err)
+    }
+    if len(entries) > 0 {
+        result.Skipped = append(result.Skipped, path+" (directory not empty)")
+        return nil
+    }
+
+    if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+        return fmt.Errorf("failed to create file %s: %w", path, err)
+    }
+    result.Created = append(result.Created, path)
+    return nil
+}
+```
+
+### 3. Update init command
+
+**File:** `internal/command/init.go`
+
+```go
+package command
+
+import (
+    "fmt"
+    "os"
+
+    "github.com/spf13/cobra"
+    "go.octolab.org/tuna/internal/assistant"
+)
+
+func Init() *cobra.Command {
+    command := cobra.Command{
+        Use:   "init <AssistantID>",
+        Short: "Initialize project structure for a new assistant",
+        Long: `Initialize creates the directory structure for a new assistant:
+
+  AssistantID/
+  ├── Input/           # User query files
+  │   └── example_query.md
+  ├── Output/          # Generated responses
+  │   └── .gitkeep
+  └── System prompt/   # System prompt fragments
+      └── fragment_001.md
+
+If the directory already exists, missing parts will be completed.
+Existing files will not be overwritten.`,
+        Args: cobra.ExactArgs(1),
+        RunE: func(cmd *cobra.Command, args []string) error {
+            cwd, err := os.Getwd()
+            if err != nil {
+                return fmt.Errorf("failed to get working directory: %w", err)
+            }
+
+            result, err := assistant.Init(cwd, args[0])
+            if err != nil {
+                return err
+            }
+
+            if len(result.Created) > 0 {
+                cmd.Println("Created:")
+                for _, item := range result.Created {
+                    cmd.Printf("  + %s\n", item)
+                }
+            }
+
+            if len(result.Skipped) > 0 {
+                cmd.Println("Skipped (already exists):")
+                for _, item := range result.Skipped {
+                    cmd.Printf("  - %s\n", item)
+                }
+            }
+
+            if len(result.Created) == 0 {
+                cmd.Println("\nAssistant structure already complete.")
+            } else {
+                cmd.Printf("\nAssistant '%s' initialized successfully.\n", args[0])
+            }
+
+            return nil
+        },
+    }
+
+    return &command
+}
+```
+
+### 4. Add unit tests
+
+**File:** `internal/assistant/validate_test.go`
+
+```go
+package assistant
+
+import "testing"
+
+func TestValidateID(t *testing.T) {
+    tests := []struct {
+        name    string
+        id      string
+        wantErr error
+    }{
+        {"valid simple", "my-assistant", nil},
+        {"valid with spaces", "My Assistant", nil},
+        {"empty", "", ErrEmptyID},
+        {"dot", ".", ErrReservedName},
+        {"double dot", "..", ErrReservedName},
+        {"contains slash", "foo/bar", ErrInvalidChars},
+        {"contains backslash", "foo\\bar", ErrInvalidChars},
+        {"too long", string(make([]byte, 256)), ErrTooLong},
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            if err := ValidateID(tt.id); err != tt.wantErr {
+                t.Errorf("ValidateID(%q) = %v, want %v", tt.id, err, tt.wantErr)
+            }
+        })
+    }
+}
+```
+
+**File:** `internal/assistant/init_test.go`
+
+```go
+package assistant
+
+import (
+    "os"
+    "path/filepath"
+    "testing"
+)
+
+func TestInit(t *testing.T) {
+    t.Run("creates full structure", func(t *testing.T) {
+        tmpDir := t.TempDir()
+        result, err := Init(tmpDir, "test-assistant")
+        if err != nil {
+            t.Fatalf("Init() error = %v", err)
+        }
+
+        for _, dir := range []string{"Input", "Output", "System prompt"} {
+            path := filepath.Join(tmpDir, "test-assistant", dir)
+            if _, err := os.Stat(path); os.IsNotExist(err) {
+                t.Errorf("Directory %s was not created", dir)
+            }
+        }
+
+        if len(result.Created) != 6 { // 3 dirs + 3 files
+            t.Errorf("Expected 6 created items, got %d", len(result.Created))
+        }
+    })
+
+    t.Run("completes partial structure", func(t *testing.T) {
+        tmpDir := t.TempDir()
+        os.MkdirAll(filepath.Join(tmpDir, "partial", "Input"), 0755)
+
+        result, err := Init(tmpDir, "partial")
+        if err != nil {
+            t.Fatalf("Init() error = %v", err)
+        }
+
+        if len(result.Skipped) < 1 {
+            t.Error("Expected at least 1 skipped item")
+        }
+    })
+
+    t.Run("rejects invalid ID", func(t *testing.T) {
+        if _, err := Init(t.TempDir(), "invalid/name"); err == nil {
+            t.Error("Expected error for invalid ID")
+        }
+    })
+}
+```
+
+## File Changes
+
+| File                                  | Action |
+|---------------------------------------|--------|
+| `internal/assistant/validate.go`      | Create |
+| `internal/assistant/validate_test.go` | Create |
+| `internal/assistant/init.go`          | Create |
+| `internal/assistant/init_test.go`     | Create |
+| `internal/command/init.go`            | Modify |
+
+## Acceptance Criteria
+
+- [x] AssistantID validated (not empty, no forbidden chars, max length)
+- [x] All directories and template files created
+- [x] Partial structure completed without overwriting
+- [x] Summary output: created/skipped items
+- [x] Unit tests pass
