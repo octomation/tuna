@@ -1,21 +1,31 @@
 ---
-issue: 57
-status: done
-type: feature
+code: null
+id: I_kwDOPyI7hs7bInpG
+databaseId: 3676469830
+number: 57
+url: https://github.com/octomation/tuna/issues/57
+title: "feature: support multiple LLM providers"
+issueType: Feature
 labels:
-  - "effort: medium"
-  - "impact: high"
-  - "scope: code"
   - "type: feature"
+  - "scope: code"
+  - "impact: high"
+  - "effort: medium"
 assignees:
   - kamilsk
 milestone: null
-projects: []
-relationships:
-  parent: null
-  blocked_by: []
-  blocks: []
+parent: null
+issueFields: {}
+state: CLOSED
+stateReason: COMPLETED
+duplicateOf: null
+createdAt: 2025-11-29T07:37:34Z
+updatedAt: 2025-12-07T16:07:35Z
+lastEditedAt: 2025-12-07T16:01:56Z
+closedAt: 2025-11-29T16:23:04Z
 ---
+
+# feature: support multiple LLM providers
 
 # Support Multiple LLM Providers
 

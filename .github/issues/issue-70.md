@@ -1,27 +1,37 @@
 ---
-issue: 70
-status: done
-type: task
+code: null
+id: I_kwDOPyI7hs7cxcSb
+databaseId: 3703948443
+number: 70
+url: https://github.com/octomation/tuna/issues/70
+title: "task: add response metadata to LLM output files"
+issueType: Task
 labels:
-  - "effort: easy"
-  - "impact: low"
-  - "scope: code"
   - "type: improvement"
+  - "scope: code"
+  - "impact: low"
+  - "effort: easy"
 assignees:
   - kamilsk
 milestone: null
-projects: []
-relationships:
-  parent: null
-  blocked_by: []
-  blocks: []
+parent: null
+issueFields: {}
+state: CLOSED
+stateReason: COMPLETED
+duplicateOf: null
+createdAt: 2025-12-07T20:43:57Z
+updatedAt: 2025-12-09T18:56:38Z
+lastEditedAt: 2025-12-09T18:55:37Z
+closedAt: 2025-12-09T18:56:38Z
 ---
+
+# task: add response metadata to LLM output files
 
 # Add Response Metadata to LLM Output Files
 
 ## Context
 
-Currently, response files contain only the raw LLM output with optional rating metadata added by `tuna view` in #68. For debugging, auditing, and analysis purposes, it's valuable to know more context about how each response was generated: which provider was used, the exact model name (not alias), how long the request took, and token consumption.
+Currently, response files contain only the raw LLM output with optional rating metadata added by `tuna view` in [[issue-68]]. For debugging, auditing, and analysis purposes, it's valuable to know more context about how each response was generated: which provider was used, the exact model name (not alias), how long the request took, and token consumption.
 
 This metadata should be automatically embedded in the response file's YAML front matter when `tuna exec` saves the response.
 

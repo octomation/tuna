@@ -1,21 +1,31 @@
 ---
-issue: 68
-status: done
-type: feature
+code: null
+id: I_kwDOPyI7hs7cwxlu
+databaseId: 3703773550
+number: 68
+url: https://github.com/octomation/tuna/issues/68
+title: "feature: implement `tuna view` command"
+issueType: Feature
 labels:
-  - "effort: hard"
-  - "impact: high"
-  - "scope: code"
   - "type: feature"
+  - "scope: code"
+  - "impact: high"
+  - "effort: hard"
 assignees:
   - kamilsk
 milestone: null
-projects: []
-relationships:
-  parent: null
-  blocked_by: []
-  blocks: []
+parent: null
+issueFields: {}
+state: CLOSED
+stateReason: COMPLETED
+duplicateOf: null
+createdAt: 2025-12-07T17:55:05Z
+updatedAt: 2025-12-07T19:58:44Z
+lastEditedAt: 2025-12-07T19:58:44Z
+closedAt: 2025-12-07T18:23:43Z
 ---
+
+# feature: implement `tuna view` command
 
 # Implement `tuna view` Command
 

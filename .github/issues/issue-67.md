@@ -1,21 +1,31 @@
 ---
-issue: 67
-status: done
-type: task
+code: null
+id: I_kwDOPyI7hs7coBIC
+databaseId: 3701477890
+number: 67
+url: https://github.com/octomation/tuna/issues/67
+title: "task: support direct API token in configuration"
+issueType: Task
 labels:
-  - "effort: easy"
-  - "impact: low"
-  - "scope: code"
   - "type: improvement"
+  - "scope: code"
+  - "impact: low"
+  - "effort: easy"
 assignees:
   - kamilsk
 milestone: null
-projects: []
-relationships:
-  parent: null
-  blocked_by: []
-  blocks: []
+parent: null
+issueFields: {}
+state: CLOSED
+stateReason: COMPLETED
+duplicateOf: null
+createdAt: 2025-12-06T11:08:36Z
+updatedAt: 2025-12-07T16:20:09Z
+lastEditedAt: 2025-12-07T16:20:09Z
+closedAt: 2025-12-06T12:43:32Z
 ---
+
+# task: support direct API token in configuration
 
 # Support Direct API Token in Configuration
 

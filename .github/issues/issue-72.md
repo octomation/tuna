@@ -1,21 +1,31 @@
 ---
-issue: 72
-status: open
-type: feature
+code: null
+id: I_kwDOPyI7hs7dRSRv
+databaseId: 3712296047
+number: 72
+url: https://github.com/octomation/tuna/issues/72
+title: "feature: simplify CLI interaction"
+issueType: Feature
 labels:
-  - "effort: medium"
-  - "impact: high"
-  - "scope: code"
   - "type: feature"
+  - "scope: code"
+  - "impact: high"
+  - "effort: medium"
 assignees:
   - kamilsk
 milestone: null
-projects: []
-relationships:
-  parent: null
-  blocked_by: []
-  blocks: []
+parent: null
+issueFields: {}
+state: OPEN
+stateReason: null
+duplicateOf: null
+createdAt: 2025-12-09T19:13:03Z
+updatedAt: 2025-12-09T19:13:08Z
+lastEditedAt: null
+closedAt: null
 ---
+
+# feature: simplify CLI interaction
 
 # Simplify CLI Interaction
 

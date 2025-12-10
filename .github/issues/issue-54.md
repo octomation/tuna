@@ -1,27 +1,37 @@
 ---
-issue: 54
-status: closed
-type: feature
+code: null
+id: I_kwDOPyI7hs7aVemZ
+databaseId: 3663063449
+number: 54
+url: https://github.com/octomation/tuna/issues/54
+title: "feature: implement `tuna exec` command"
+issueType: Feature
 labels:
-  - "effort: medium"
-  - "impact: high"
-  - "scope: code"
   - "type: feature"
+  - "scope: code"
+  - "impact: high"
+  - "effort: medium"
 assignees:
   - kamilsk
 milestone: null
-projects: []
-relationships:
-  parent: null
-  blocked_by: []
-  blocks: []
+parent: null
+issueFields: {}
+state: CLOSED
+stateReason: COMPLETED
+duplicateOf: null
+createdAt: 2025-11-25T13:22:56Z
+updatedAt: 2025-12-07T15:55:39Z
+lastEditedAt: 2025-12-07T15:55:39Z
+closedAt: 2025-11-25T18:20:55Z
 ---
+
+# feature: implement `tuna exec` command
 
 # Implement `tuna exec` Command
 
 ## Context
 
-The stub command exists in `internal/command/exec.go` (from #51). Now we need to implement actual functionality: execute a plan by reading `plan.toml`, making LLM requests via OpenAI-compatible API, and saving responses.
+The stub command exists in `internal/command/exec.go` (from [[issue-51]]). Now we need to implement actual functionality: execute a plan by reading `plan.toml`, making LLM requests via OpenAI-compatible API, and saving responses.
 
 Implementation is split into two phases:
 - **Phase 1 (MVP)**: First query + first model, output to stdout

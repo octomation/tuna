@@ -1,21 +1,31 @@
 ---
-issue: 51
-status: closed
-type: task
+code: null
+id: I_kwDOPyI7hs7aTbda
+databaseId: 3662526298
+number: 51
+url: https://github.com/octomation/tuna/issues/51
+title: "task: add stub commands for CLI"
+issueType: Task
 labels:
-  - "effort: easy"
-  - "impact: low"
-  - "scope: code"
   - "type: improvement"
+  - "scope: code"
+  - "impact: low"
+  - "effort: easy"
 assignees:
   - kamilsk
 milestone: null
-projects: []
-relationships:
-  parent: null
-  blocked_by: []
-  blocks: []
+parent: null
+issueFields: {}
+state: CLOSED
+stateReason: COMPLETED
+duplicateOf: null
+createdAt: 2025-11-25T10:50:20Z
+updatedAt: 2025-12-07T15:31:44Z
+lastEditedAt: 2025-12-07T15:31:44Z
+closedAt: 2025-11-25T10:58:17Z
 ---
+
+# task: add stub commands for CLI
 
 # Add Stub Commands for CLI
 

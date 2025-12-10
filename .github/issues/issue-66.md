@@ -1,22 +1,32 @@
 ---
-issue: 66
-status: done
-type: task
+code: null
+id: I_kwDOPyI7hs7cnyDD
+databaseId: 3701416131
+number: 66
+url: https://github.com/octomation/tuna/issues/66
+title: "task: implement interactive TUI using Charm libraries"
+issueType: Task
 labels:
-  - "effort: medium"
-  - "impact: medium"
+  - "type: improvement"
   - "scope: code"
   - "scope: deps"
-  - "type: improvement"
+  - "impact: medium"
+  - "effort: medium"
 assignees:
   - kamilsk
 milestone: null
-projects: []
-relationships:
-  parent: null
-  blocked_by: []
-  blocks: []
+parent: null
+issueFields: {}
+state: CLOSED
+stateReason: COMPLETED
+duplicateOf: null
+createdAt: 2025-12-06T10:27:42Z
+updatedAt: 2025-12-07T16:19:16Z
+lastEditedAt: 2025-12-07T16:19:16Z
+closedAt: 2025-12-06T10:44:49Z
 ---
+
+# task: implement interactive TUI using Charm libraries
 
 # Implement interactive TUI using Charm libraries
 

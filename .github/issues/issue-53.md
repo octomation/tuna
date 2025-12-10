@@ -1,27 +1,37 @@
 ---
-issue: 53
-status: closed
-type: feature
+code: null
+id: I_kwDOPyI7hs7aVeQW
+databaseId: 3663062038
+number: 53
+url: https://github.com/octomation/tuna/issues/53
+title: "feature: implement `tuna plan` command"
+issueType: Feature
 labels:
-  - "effort: easy"
-  - "impact: medium"
-  - "scope: code"
   - "type: feature"
+  - "scope: code"
+  - "impact: medium"
+  - "effort: easy"
 assignees:
   - kamilsk
 milestone: null
-projects: []
-relationships:
-  parent: null
-  blocked_by: []
-  blocks: []
+parent: null
+issueFields: {}
+state: CLOSED
+stateReason: COMPLETED
+duplicateOf: null
+createdAt: 2025-11-25T13:22:34Z
+updatedAt: 2025-12-07T15:45:27Z
+lastEditedAt: 2025-12-07T15:45:27Z
+closedAt: 2025-11-25T14:42:25Z
 ---
+
+# feature: implement `tuna plan` command
 
 # Implement `tuna plan` Command
 
 ## Context
 
-The stub command exists in `internal/command/plan.go` (from #51). Now we need to implement actual functionality: create a `plan.toml` configuration file for an execution session by compiling system prompt fragments and collecting input queries.
+The stub command exists in `internal/command/plan.go` (from [[issue-51]]). Now we need to implement actual functionality: create a `plan.toml` configuration file for an execution session by compiling system prompt fragments and collecting input queries.
 
 ## Specification
 

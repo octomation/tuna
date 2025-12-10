@@ -1,22 +1,32 @@
 ---
-issue: 58
-status: done
-type: task
+code: null
+id: I_kwDOPyI7hs7bKoG5
+databaseId: 3676996025
+number: 58
+url: https://github.com/octomation/tuna/issues/58
+title: "improvement: switch to ULID instead of UUID for Plan IDs"
+issueType: Task
 labels:
-  - "effort: easy"
-  - "impact: medium"
+  - "type: improvement"
   - "scope: code"
   - "scope: deps"
-  - "type: improvement"
+  - "impact: medium"
+  - "effort: easy"
 assignees:
   - kamilsk
 milestone: null
-projects: []
-relationships:
-  parent: null
-  blocked_by: []
-  blocks: []
+parent: null
+issueFields: {}
+state: CLOSED
+stateReason: COMPLETED
+duplicateOf: null
+createdAt: 2025-11-29T18:38:00Z
+updatedAt: 2025-12-07T16:08:44Z
+lastEditedAt: 2025-12-07T16:08:44Z
+closedAt: 2025-11-29T19:54:07Z
 ---
+
+# improvement: switch to ULID instead of UUID for Plan IDs
 
 # Switch to ULID instead of UUID for Plan IDs
 

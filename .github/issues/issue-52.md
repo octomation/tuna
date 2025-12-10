@@ -1,27 +1,37 @@
 ---
-issue: 52
-status: closed
-type: feature
+code: null
+id: I_kwDOPyI7hs7aVdsR
+databaseId: 3663059729
+number: 52
+url: https://github.com/octomation/tuna/issues/52
+title: "feature: implement `tuna init` command"
+issueType: Feature
 labels:
-  - "effort: easy"
-  - "impact: low"
-  - "scope: code"
   - "type: feature"
+  - "scope: code"
+  - "impact: low"
+  - "effort: easy"
 assignees:
   - kamilsk
 milestone: null
-projects: []
-relationships:
-  parent: null
-  blocked_by: []
-  blocks: []
+parent: null
+issueFields: {}
+state: CLOSED
+stateReason: COMPLETED
+duplicateOf: null
+createdAt: 2025-11-25T13:22:01Z
+updatedAt: 2025-12-07T15:37:05Z
+lastEditedAt: 2025-12-07T15:37:05Z
+closedAt: 2025-11-25T14:18:27Z
 ---
+
+# feature: implement `tuna init` command
 
 # Implement `tuna init` Command
 
 ## Context
 
-The stub command exists in `internal/command/init.go` (from #51). Now we need to implement actual functionality: create directory structure for a new Assistant with template files.
+The stub command exists in `internal/command/init.go` (from [[issue-51]]). Now we need to implement actual functionality: create directory structure for a new Assistant with template files.
 
 ## Specification
 
