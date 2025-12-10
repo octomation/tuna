@@ -15,3 +15,6 @@ http-client.private.env.json
 
 # ai agent data
 .claude
+
+# sparkle
+.github/notes
