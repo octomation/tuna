@@ -1,8 +1,6 @@
 module go.octolab.org/toolset/tuna
 
-go 1.25.0
-
-toolchain go1.25.5
+go 1.26.0
 
 require (
 	github.com/charmbracelet/bubbles v0.21.0
@@ -19,7 +17,7 @@ require (
 	go.octolab.org v0.12.2
 	go.octolab.org/toolkit/cli v0.6.4
 	go.octolab.org/toolkit/config v0.0.5
-	golang.org/x/time v0.14.0
+	golang.org/x/time v0.16.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
