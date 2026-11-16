@@ -11,7 +11,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
 	github.com/golang/mock v1.6.0
 	github.com/mattn/go-isatty v0.0.20
-	github.com/oklog/ulid/v2 v2.1.1
+	github.com/oklog/ulid/v2 v2.1.2
 	github.com/pelletier/go-toml/v2 v2.0.0-beta.8
 	github.com/sashabaranov/go-openai v1.41.2
 	github.com/spf13/cobra v1.8.0
