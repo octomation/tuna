@@ -14,7 +14,7 @@ require (
 	github.com/oklog/ulid/v2 v2.1.1
 	github.com/pelletier/go-toml/v2 v2.0.0-beta.8
 	github.com/sashabaranov/go-openai v1.41.2
-	github.com/spf13/cobra v1.8.0
+	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.10.0
 	go.octolab.org v0.12.2
 	go.octolab.org/toolkit/cli v0.6.4
@@ -57,7 +57,7 @@ require (
 	github.com/spf13/afero v1.8.2 // indirect
 	github.com/spf13/cast v1.4.1 // indirect
 	github.com/spf13/jwalterweatherman v1.1.0 // indirect
-	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/spf13/viper v1.11.0 // indirect
 	github.com/subosito/gotenv v1.2.0 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
